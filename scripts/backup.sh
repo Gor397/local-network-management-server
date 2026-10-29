@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 umask 077
 cd "$(dirname "$0")/.."
 if [ "$#" -ne 2 ]; then echo 'Usage: scripts/backup.sh OUTPUT.age AGE_PUBLIC_RECIPIENT'; exit 2; fi

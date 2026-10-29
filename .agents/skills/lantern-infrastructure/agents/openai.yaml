@@ -1,0 +1,3 @@
+interface:
+  display_name: "Lantern infrastructure"
+  short_description: "Validate Docker and safe RouterOS integration"

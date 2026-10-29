@@ -50,6 +50,7 @@ fi
 chown -R 10001:10001 data
 chmod 700 data data/keys data/repository data/recordings
 chmod 600 .env data/keys/*.key
+if [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ]; then chown "$SUDO_UID:$SUDO_GID" .env; fi
 chown -R 10001:101 data/tls
 chmod 750 data/tls
 chmod 640 data/tls/server.key

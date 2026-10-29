@@ -11,7 +11,7 @@ x-backend: &backend
     - ./data:/data
   networks: [control]
   read_only: true
-  tmpfs: [/tmp:size=32m,mode=1777]
+  tmpfs: ['/tmp:size=32m,mode=1777']
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   logging:
@@ -86,7 +86,7 @@ services:
       backend: {condition: service_healthy}
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp:size=16m,mode=1777]
+    tmpfs: ['/tmp:size=16m,mode=1777']
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: ${WEB_MEMORY:-64m}

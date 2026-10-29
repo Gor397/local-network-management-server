@@ -23,7 +23,7 @@ if [ -f .env ]; then cp .env "$lantern_temp/previous.env"; fi
 tar -xf "$lantern_temp/backup.tar" -C "$lantern_temp"
 cp "$lantern_temp/.env" .env
 mv "$lantern_temp/data" data
-docker compose up -d db
+docker compose up -d --wait --wait-timeout 120 db
 docker compose exec -T db sh -c 'pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$lantern_temp/database.dump"
-docker compose up -d --pull never --no-build
+docker compose up -d --pull never --no-build --force-recreate
 echo 'Restored. Verify login, certificates, package hashes, policy signatures, and router read-only discovery.'

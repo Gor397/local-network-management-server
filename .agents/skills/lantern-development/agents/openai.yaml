@@ -1,0 +1,3 @@
+interface:
+  display_name: "Lantern development"
+  short_description: "Navigate Lantern code and run focused validation"

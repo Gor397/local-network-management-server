@@ -1,0 +1,49 @@
+name: local-validation
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend-and-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install -r backend/requirements.txt pytest pytest-asyncio
+      - run: python -m pytest backend/tests -q
+      - run: python scripts/check_docs.py
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run: {working-directory: frontend}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+  agent-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '10.0.x'}
+      - run: dotnet build agent/src/NetworkPolicyClient.csproj -c Release
+      - run: dotnet run --project agent/tests/AgentContractTests.csproj -c Release
+  windows-source-validation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '10.0.x'}
+      - run: dotnet build agent/src/NetworkPolicyClient.csproj -c Release
+      - shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem agent -Recurse -Filter '*.ps1' | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { $errors | Write-Error; $failed = $true }
+          }
+          if ($failed) { throw 'PowerShell parse errors' }

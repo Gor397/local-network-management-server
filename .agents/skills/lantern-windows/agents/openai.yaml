@@ -1,0 +1,3 @@
+interface:
+  display_name: "Lantern Windows agent"
+  short_description: "Maintain signed Windows agent and installer flows"

@@ -1,0 +1,106 @@
+name: lantern
+x-backend: &backend
+  image: lantern-backend:${LANTERN_TAG:-0.1.0}
+  build:
+    context: .
+    dockerfile: infrastructure/docker/backend.Dockerfile
+  env_file: .env
+  environment:
+    DATA_DIR: /data
+  volumes:
+    - ./data:/data
+  networks: [control]
+  read_only: true
+  tmpfs: [/tmp:size=32m,mode=1777]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: {max-size: 5m, max-file: '3'}
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lantern}
+      POSTGRES_DB: ${POSTGRES_DB:-lantern}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/bootstrap.sh first}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command: [postgres, -c, shared_buffers=64MB, -c, max_connections=35, -c, work_mem=2MB, -c, maintenance_work_mem=32MB]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [control]
+    restart: unless-stopped
+    mem_limit: ${DB_MEMORY:-256m}
+    cpus: ${DB_CPUS:-0.50}
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '3'}
+  migrate:
+    <<: *backend
+    command: [alembic, upgrade, head]
+    depends_on:
+      db: {condition: service_healthy}
+    restart: 'no'
+    mem_limit: 192m
+    cpus: '0.50'
+  backend:
+    <<: *backend
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+    mem_limit: ${BACKEND_MEMORY:-384m}
+    cpus: ${BACKEND_CPUS:-0.75}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+  worker:
+    <<: *backend
+    command: [python, -m, app.workers.main]
+    depends_on:
+      backend: {condition: service_healthy}
+    restart: unless-stopped
+    mem_limit: ${WORKER_MEMORY:-192m}
+    cpus: ${WORKER_CPUS:-0.35}
+    healthcheck:
+      test: [CMD, python, -c, "from pathlib import Path; import time; assert time.time()-Path('/data/worker.heartbeat').stat().st_mtime<300"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+  web:
+    image: lantern-web:${LANTERN_TAG:-0.1.0}
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    ports: ['${LAN_BIND_IP:-0.0.0.0}:${HTTPS_PORT:-443}:8443']
+    volumes: [./data/tls:/etc/nginx/tls:ro]
+    networks: [control]
+    depends_on:
+      backend: {condition: service_healthy}
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp:size=16m,mode=1777]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: ${WEB_MEMORY:-64m}
+    cpus: ${WEB_CPUS:-0.25}
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q --no-check-certificate -O /dev/null https://127.0.0.1:8443/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '3'}
+volumes:
+  postgres_data:
+networks:
+  control:
+    driver: bridge

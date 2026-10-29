@@ -1,0 +1,2 @@
+export interface Device {id:string;hostname:string;primary_mac:string;device_class:string;state:string;compliance_score:number|null;network_state:string;mode:string;last_heartbeat:string|null;last_verified:string|null;policy_version_id:string|null;agent_version:string|null;os_version:string|null;revision:number;enabled:boolean;inventory?:Record<string,any>;network:Record<string,any>;}
+export interface Identity {username:string;role:string;csrf:string;mfa:boolean;}

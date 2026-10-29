@@ -1,0 +1,7 @@
+{
+  "server": "https://192.168.88.10",
+  "primary_mac": "00:11:22:33:44:55",
+  "token": "SHORT_LIVED_TOKEN_FROM_DASHBOARD",
+  "signing_public_key": "COPY_THE_TRUSTED_data/keys/signing.pub_PEM_HERE",
+  "agent_publisher_thumbprint": "CODE_SIGNING_CERTIFICATE_THUMBPRINT"
+}

@@ -1,0 +1,14 @@
+# Always use a separate project: docker compose -p lantern-lab --env-file /tmp/lantern-lab.env -f compose.yaml -f infrastructure/docker/compose.lab.yaml ...
+services:
+  migrate:
+    env_file: !override ["${LAB_ENV_FILE:?Set LAB_ENV_FILE}"]
+    volumes: !override ["${LAB_DATA_DIR:?Set LAB_DATA_DIR}:/data"]
+  backend:
+    env_file: !override ["${LAB_ENV_FILE:?Set LAB_ENV_FILE}"]
+    volumes: !override ["${LAB_DATA_DIR:?Set LAB_DATA_DIR}:/data"]
+  worker:
+    env_file: !override ["${LAB_ENV_FILE:?Set LAB_ENV_FILE}"]
+    volumes: !override ["${LAB_DATA_DIR:?Set LAB_DATA_DIR}:/data"]
+  web:
+    ports: !override ['127.0.0.1:18443:8443']
+    volumes: !override ["${LAB_DATA_DIR:?Set LAB_DATA_DIR}/tls:/etc/nginx/tls:ro"]

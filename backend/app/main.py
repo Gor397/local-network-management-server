@@ -69,7 +69,9 @@ def create_app(settings=None):
 
     @app.exception_handler(HTTPException)
     async def http_error(request, exc):
-        return JSONResponse({"error": {"code": exc.detail if isinstance(exc.detail, str) else "request.failed"}}, exc.status_code, headers=exc.headers)
+        # A dict detail carries field-level errors (e.g. policy validation); it never echoes submitted values.
+        error = exc.detail if isinstance(exc.detail, dict) and "code" in exc.detail else {"code": exc.detail if isinstance(exc.detail, str) else "request.failed"}
+        return JSONResponse({"error": error}, exc.status_code, headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):

@@ -346,6 +346,9 @@ def deploy(
     devices = [device_or_404(db, d) for d in sorted(ids)]
     if any(d.device_class == "DEVELOPER" or not d.enabled for d in devices):
         raise HTTPException(409, "device.unmanaged")
+    # Suro's own agent updates stay possible, so a computer can always be brought back under management.
+    if package.kind != "agent_update" and any(not deployment_allowed(db, d) for d in devices):
+        raise HTTPException(409, "deployment.disabled_by_policy")
     deployment = Deployment(
         package_id=package.id,
         author_id=admin.id,
@@ -463,6 +466,12 @@ def scheduler_lock(db):
         db.execute(text("SELECT pg_advisory_xact_lock(72819403)"))
 
 
+def deployment_allowed(db, device):
+    from app.models import PolicyVersion
+    version = db.get(PolicyVersion, device.policy_version_id) if device.policy_version_id else None
+    return not version or version.document.get("allow_software_deployment", True)
+
+
 @router.get("/agent/deployments/next")
 def claim(request: Request, d=Depends(agent_identity), db=Depends(db_session)):
     from app.services.safety import endpoint_change_block
@@ -531,6 +540,9 @@ def claim(request: Request, d=Depends(agent_identity), db=Depends(db_session)):
     deployment = db.get(Deployment, t.deployment_id)
     package = db.get(SoftwarePackage, deployment.package_id)
     if not package.approved_by:
+        return {"task": None}
+    if package.kind != "agent_update" and not deployment_allowed(db, d):
+        # The policy changed after the job was created; hold it rather than install or silently drop it.
         return {"task": None}
     t.state, t.attempt, t.lease_until = (
         "RUNNING",

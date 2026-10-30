@@ -4,6 +4,8 @@
 
 `PolicyDocument` in `backend/app/policies/schema.py` validates every published document. Unknown fields are rejected. There is no command, script body or shell-execution field.
 
+Administrators edit policies visually (Policies → a policy → Settings); the JSON below is what the editor stores. See the [visual policy editor](developers/policy-editor.md) for drafts, preview, assignment, the enforcement status of every setting, and which settings reach older agents.
+
 Example audit baseline:
 
 ```json

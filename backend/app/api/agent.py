@@ -61,14 +61,17 @@ def policy(request: Request, response: Response, d=Depends(agent_identity), db=D
         raise HTTPException(404, "policy.unassigned")
     from app.services.safety import agent_mode
     mode = agent_mode(request.app.state.settings, d)
-    etag = f'"{d.policy_version_id}:{d.revision}:{mode}"'
+    from app.policies.catalog import agent_document
+    features = sorted(d.agent_features or [])
+    etag = f'"{d.policy_version_id}:{d.revision}:{mode}:{",".join(features)}"'
     if request.headers.get("if-none-match") == etag:
         response.status_code = 304
         return None
     version = db.get(PolicyVersion, d.policy_version_id)
     response.headers["ETag"] = etag
     return request.app.state.vault.signed({"schema_version": 1, "device_id": d.id, "version_id": version.id,
-                                          "revision": d.revision, "mode": mode, "document": version.document,
+                                          "revision": d.revision, "mode": mode,
+                                          "document": agent_document(version.document, features),
                                           "valid_until": (utcnow() + timedelta(hours=24)).isoformat()+"Z"})
 
 
@@ -77,12 +80,16 @@ class Heartbeat(BaseModel):
     os_version: str = Field(max_length=256)
     policy_version_id: str | None = Field(default=None, max_length=36)
     health: dict = Field(default_factory=dict)
+    policy_features: list[str] | None = Field(default=None, max_length=32)
 
 
 @router.post("/heartbeat")
 def heartbeat(body: Heartbeat, request: Request, d=Depends(agent_identity), db=Depends(db_session)):
     d.last_heartbeat, d.agent_version, d.os_version = utcnow(), body.agent_version, body.os_version
     d.reported_policy_id = body.policy_version_id
+    if body.policy_features is not None:
+        from app.policies.catalog import AGENT_FEATURES
+        d.agent_features = sorted(set(body.policy_features) & set(AGENT_FEATURES))
     # Retain a bounded set of metrics, never arbitrary file or user content.
     allowed = {"cpu_percent", "ram_percent", "disk_free_bytes", "uptime_seconds", "last_boot", "ip", "gateway", "signal", "service_running", "critical_errors"}
     metrics = {k: v for k, v in body.health.items() if k in allowed}

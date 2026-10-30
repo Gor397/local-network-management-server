@@ -83,6 +83,8 @@ class Device(Record, Base):
     network_profile_id: Mapped[str | None] = mapped_column(
         ForeignKey("network_profiles.id"), index=True
     )
+    # Policy features the agent reported understanding; decides which settings it is sent.
+    agent_features: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class NetworkInterface(Record, Base):
@@ -155,6 +157,12 @@ class Policy(Record, Base):
     __tablename__ = "policies"
     name: Mapped[str] = mapped_column(String(128), unique=True)
     active_version_id: Mapped[str | None] = mapped_column(String(36))
+    description: Mapped[str] = mapped_column(Text, default="")
+    # One working copy per policy; devices only ever receive published versions.
+    draft: Mapped[dict | None] = mapped_column(JSON)
+    draft_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    draft_author_id: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    is_template: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class PolicyVersion(Record, Base):

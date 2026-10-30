@@ -53,6 +53,9 @@ import { WorkContext, type ModalSpec, type Field } from "./context";
 import { HelpButton, HelpAction, HelpCenter } from "./components/Help";
 import { AdminCredentialPanel } from "./components/AdminCredential";
 import { extraRoutes } from "./routes";
+const PolicyStudio = lazy(() =>
+  import("./pages/PolicyStudio").then((module) => ({ default: module.PolicyStudio })),
+);
 const SuroPages = lazy(() =>
   import("./pages/SuroPages").then((module) => ({ default: module.SuroPages })),
 );
@@ -403,7 +406,9 @@ function Workspace() {
                 <Devices />
               )
             ) : page === "policies" ? (
-              <Policies />
+              <Suspense fallback={<p role="status">{t("loading")}</p>}>
+                <PolicyStudio id={deviceId} />
+              </Suspense>
             ) : page === "network" ? (
               <NetworkPage />
             ) : page === "software" ? (
@@ -1567,225 +1572,6 @@ function HistoryTable({ rows }: { rows: any[] }) {
     </div>
   ) : (
     <Empty />
-  );
-}
-function Policies() {
-  const t = useT();
-  const { revision, modal, run } = useContext(WorkContext);
-  const { data: list } = useData<any[]>("/policies", revision);
-  const [selected, setSelected] = useState("");
-  const current = useData(
-    selected ? "/policies/" + selected : "/policies/schema",
-    revision,
-  );
-  const [draft, setDraft] = useState("");
-  const [preview, setPreview] = useState(false);
-  useEffect(() => {
-    if (current.data) {
-      setDraft(
-        JSON.stringify(
-          current.data.versions?.[0]?.document || current.data.default || {},
-          null,
-          2,
-        ),
-      );
-      setPreview(false);
-    }
-  }, [current.data]);
-  const update = (key: string, value: any) => {
-    try {
-      setDraft(JSON.stringify({ ...JSON.parse(draft), [key]: value }, null, 2));
-      setPreview(false);
-    } catch {}
-  };
-  let parsed: any = {};
-  try {
-    parsed = JSON.parse(draft);
-  } catch {}
-  const publish = () =>
-    modal({
-      title: "publish",
-      info: t("confirmImpact"),
-      fields: [{ name: "reason", label: "reason" }],
-      submit: (v) =>
-        api("/policies/" + selected + "/publish", "POST", {
-          document: JSON.parse(draft),
-          reason: v.reason,
-          expected_version_id: current.data.active_version_id,
-        }),
-    });
-  return (
-    <>
-      <Heading title="policies" subtitle="mandatoryNotice">
-        <HelpAction feature="addPolicy">
-          <button
-            className="button primary"
-            onClick={() =>
-              modal({
-                title: "addPolicy",
-                fields: [{ name: "name", label: "name" }],
-                submit: async (v) => {
-                  const r = await api("/policies", "POST", v);
-                  setSelected(r.id);
-                },
-              })
-            }
-          >
-            <Plus size={17} />
-            {t("addPolicy")}
-          </button>
-        </HelpAction>
-      </Heading>
-      <div className="policy-layout">
-        <aside className="card policy-list">
-          {list?.map((p) => (
-            <HelpAction feature="ACTIVE">
-              <button
-                key={p.id}
-                className={p.id === selected ? "active" : ""}
-                onClick={() => setSelected(p.id)}
-              >
-                <ShieldCheck size={17} />
-                <span>
-                  {p.name}
-                  <small>
-                    {p.active_version_id ? t("ACTIVE") : t("PREVIEW")}
-                  </small>
-                </span>
-                <ChevronRight size={15} />
-              </button>
-            </HelpAction>
-          ))}
-          {!list?.length && <Empty />}
-        </aside>
-        <section className="card policy-editor">
-          <div className="card-heading">
-            <h2>{t("policy")}</h2>
-            <Badge
-              value={current.data?.active_version_id ? "ACTIVE" : "PREVIEW"}
-            />
-          </div>
-          <div className="policy-controls">
-            <label>
-              {t("username")}
-              <input
-                value={parsed.user_account || ""}
-                onChange={(e) => update("user_account", e.target.value)}
-              />
-            </label>
-            <label>
-              {t("heartbeatInterval")}
-              <input
-                type="number"
-                min="30"
-                value={parsed.heartbeat_seconds || 120}
-                onChange={(e) =>
-                  update("heartbeat_seconds", Number(e.target.value))
-                }
-              />
-            </label>
-            <label className="checkbox">
-              <span>{t("requireD")}</span>
-              <input
-                type="checkbox"
-                checked={parsed.require_d || false}
-                onChange={(e) => update("require_d", e.target.checked)}
-              />
-            </label>
-            <label className="checkbox">
-              <span>{t("hideC")}</span>
-              <input
-                type="checkbox"
-                checked={parsed.hide_c || false}
-                onChange={(e) => update("hide_c", e.target.checked)}
-              />
-            </label>
-            <label className="checkbox">
-              <span>{t("autoQuarantine")}</span>
-              <input
-                type="checkbox"
-                checked={parsed.quarantine_on_failure || false}
-                onChange={(e) =>
-                  update("quarantine_on_failure", e.target.checked)
-                }
-              />
-            </label>
-          </div>
-          <label className="policy-json-label">
-            {t("policyDocument")}
-            <textarea
-              className="policy-json"
-              spellCheck={false}
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setPreview(false);
-              }}
-              rows={21}
-            />
-          </label>
-          <div className="button-row">
-            <HelpAction feature="policyPreview">
-              <button
-                className="button secondary"
-                onClick={() =>
-                  run(async () => {
-                    const result = await api("/policies/simulate", "POST", {
-                      document: JSON.parse(draft),
-                    });
-                    setPreview(!!result.effective);
-                    return result;
-                  })
-                }
-              >
-                <CheckCheck size={17} />
-                {t("policyPreview")}
-              </button>
-            </HelpAction>
-            <HelpAction feature="publish">
-              <button
-                disabled={!selected || !preview}
-                className="button primary"
-                onClick={publish}
-              >
-                {t("publish")}
-              </button>
-            </HelpAction>
-          </div>
-          {current.data?.versions?.map((v: any) => (
-            <div className="version-row" key={v.id}>
-              <div>
-                <b>
-                  {t("version")} {v.sequence}
-                </b>
-                <small className="mono">{v.hash}</small>
-                <p>{v.reason}</p>
-              </div>
-              <HelpAction feature="rollback">
-                <button
-                  className="button secondary"
-                  onClick={() =>
-                    modal({
-                      title: "rollback",
-                      info: t("confirmImpact"),
-                      fields: [{ name: "reason", label: "reason" }],
-                      submit: (val) =>
-                        api("/policies/" + selected + "/rollback", "POST", {
-                          version_id: v.id,
-                          expected_version_id: current.data.active_version_id,
-                          reason: val.reason,
-                        }),
-                    })
-                  }
-                >
-                  {t("rollback")}
-                </button>
-              </HelpAction>
-            </div>
-          ))}
-        </section>
-      </div>
-    </>
   );
 }
 function NetworkPage() {

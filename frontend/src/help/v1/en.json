@@ -136,6 +136,38 @@
     "legacy-startup-task": {
       "title": "Old kursant startup task",
       "body": "The old kursant script installed a startup task that, at every boot, resets Windows Firewall, blocks all outbound traffic except to 192.168.0.1, 10.47.47.47 and 10.47.47.74, and re-adds AcademyAdmin to Administrators. While it is active, any firewall rule Suro adds disappears at the next restart, so Suro refuses to apply its firewall policy. Step 1: put the computer in Maintenance mode and disable the task. This keeps today's rules and connection exactly as they are. Step 2: once the policy explicitly allows the Suro server, move the firewall to Suro rules. The old rules are disabled, not deleted, and the change is undone automatically if the server becomes unreachable. You can re-enable the task at any time."
+    },
+    "policy-accounts": {
+      "title": "Policy: user accounts",
+      "body": "Use these settings to say which administrator and everyday user accounts every computer must have. Suro only checks them unless you turn on automatic removal of admin rights; that needs Continuous or Approved remediation mode and a working administrator account, so nobody is locked out. Accounts are never created or deleted by a policy, and user files are not touched. To undo, switch the setting off and publish again."
+    },
+    "policy-disk": {
+      "title": "Policy: disks and files",
+      "body": "These settings describe the desired disk layout: Windows on C:, user data on D:. Suro reports computers that differ. It never shrinks, formats or creates partitions because of a policy; that work needs a verified backup and separate approval. Turning a requirement off only stops it being checked."
+    },
+    "policy-network": {
+      "title": "Policy: IP addresses",
+      "body": "Choose how computers should get their address. Today Suro checks the adapter used for the default route and reports differences; it does not change the address. For fixed addresses, enter the network, gateway and DNS here and each computer's own address on the Assign tab; Suro refuses duplicates. A wrong address can cut a computer off, so make changes in planned maintenance."
+    },
+    "policy-firewall": {
+      "title": "Policy: internet and firewall",
+      "body": "Block internet access keeps computers off the public internet while the Suro server and the local services you list stay reachable. Publishing does not change the firewall: an approved maintenance job applies it, checks the connection to Suro and restores the previous firewall automatically if the check fails. Remove a service from the list and publish again to undo."
+    },
+    "policy-system": {
+      "title": "Policy: Windows settings",
+      "body": "Small adjustments for the standard user, such as hiding drive C: in File Explorer. They take effect after the user signs in again and can be undone by switching them off and publishing."
+    },
+    "policy-software": {
+      "title": "Policy: software installation",
+      "body": "When software installation is off, Suro refuses to send software, drivers or language packs to these computers, including jobs created earlier. Suro client updates still work so computers stay manageable."
+    },
+    "policy-agent": {
+      "title": "Policy: Suro client",
+      "body": "Controls how often computers report and how long results are trusted. Shorter times mean fresher information but more work for the server; on old server hardware keep the check-in interval at two minutes or more."
+    },
+    "policy-advanced": {
+      "title": "Policy: advanced",
+      "body": "Choose which requirements count for compliance and whether the router should isolate noncompliant or silent computers. Isolation can cut a computer off from the network; enable it only after testing. Core security checks always count."
     }
   }
 }

@@ -3,15 +3,33 @@ from app.db import utcnow
 from app.policies.schema import CATALOG, PolicyDocument
 
 
+def not_required(document):
+    """Checks a policy's own settings switch off; everything else listed in mandatory_checks applies."""
+    skipped = set()
+    if not document.require_d:
+        skipped |= {"disk.d.valid", "disk.user_data_location.valid"}
+    if not document.require_user_data_on_d:
+        skipped.add("disk.user_data_location.valid")
+    if not document.require_admin_account:
+        skipped |= {"account.admin.exists", "account.admin.member_of_administrators"}
+    if not document.require_standard_user:
+        skipped |= {"account.user.exists", "account.user.not_administrator"}
+    if not document.block_internet:
+        skipped |= {"firewall.outbound_policy.valid", "firewall.managed_rules.valid", "network.internet_restriction.valid"}
+    if document.ip_mode == "unmanaged":
+        skipped.add("endpoint.ip_configuration.valid")
+    return skipped
+
+
 def evaluate(policy: dict, version_id, reported_version, agent_claims, network_claims, exceptions=(), now=None):
     now = now or utcnow()
     document = PolicyDocument.model_validate(policy)
     results = []
-    applicable = [c for c in document.mandatory_checks if c not in set(exceptions)]
-    if not document.require_d:
-        applicable = [c for c in applicable if c not in ("disk.d.valid", "disk.user_data_location.valid")]
+    applicable = [c for c in document.mandatory_checks if c not in set(exceptions) and c not in not_required(document)]
     # Core identity, network, freshness and integrity gates cannot be waived.
-    core = ["agent.policy_version_current", "agent.integrity_valid", "network.mac_identity.valid", "network.isolation.valid", "network.internet_restriction.valid"]
+    core = ["agent.policy_version_current", "agent.integrity_valid", "network.mac_identity.valid", "network.isolation.valid"]
+    if document.block_internet:
+        core.append("network.internet_restriction.valid")
     applicable = sorted(set(applicable) | set(core))
     for check in applicable:
         source, severity = CATALOG[check]

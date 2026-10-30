@@ -28,7 +28,8 @@ try {
     $c = $inventory.volumes | Where-Object drive -eq 'C'
     $d = $inventory.volumes | Where-Object drive -eq 'D'
     BoolClaim 'disk.c.valid' ([bool]($c -and $c.health -eq 'Healthy')) $c
-    BoolClaim 'disk.d.valid' ([bool]($d -and $d.filesystem -eq 'NTFS' -and $d.health -eq 'Healthy')) $d
+    $minD = [long]$policy.min_d_gb * 1GB
+    BoolClaim 'disk.d.valid' ([bool]($d -and $d.filesystem -eq 'NTFS' -and $d.health -eq 'Healthy' -and $d.size -ge $minD)) $d
     $health.disk_free_bytes = if ($c) { $c.free } else { $null }
     $inventory.bitlocker = @(Get-BitLockerVolume -ErrorAction SilentlyContinue | Select-Object MountPoint, VolumeStatus, ProtectionStatus, LockStatus)
     $inventory.storage_readiness = @{ backup_restore_tested=$false; filesystem_healthy=([bool]($c.health -eq 'Healthy')); shrink_supported=$false; recovery_key_escrowed=$false }
@@ -59,6 +60,29 @@ try {
     $health.ip = [string]$ip.IPv4Address.IPAddress
     $health.gateway = [string]$ip.IPv4DefaultGateway.NextHop
 } catch {}
+try {
+    # Read-only: compares the interface carrying the default route with the policy. Never changes it.
+    if ($policy.ip_mode -and $policy.ip_mode -ne 'unmanaged') {
+        $config = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
+        if (-not $config) { Claim 'endpoint.ip_configuration.valid' 'UNKNOWN' $null @{ reason='no_default_route' } }
+        else {
+            $dhcp = [string](Get-NetIPInterface -InterfaceIndex $config.InterfaceIndex -AddressFamily IPv4).Dhcp -eq 'Enabled'
+            $address = $config.IPv4Address | Select-Object -First 1
+            $actual = @{ interface=$config.InterfaceAlias; dhcp=$dhcp; address=[string]$address.IPAddress; prefix=[int]$address.PrefixLength
+                         gateway=[string]$config.IPv4DefaultGateway.NextHop
+                         dns=@($config.DNSServer | Where-Object AddressFamily -eq 2 | ForEach-Object ServerAddresses) }
+            if ($policy.ip_mode -ne 'static') { BoolClaim 'endpoint.ip_configuration.valid' $dhcp $actual }
+            elseif ($dhcp) { Claim 'endpoint.ip_configuration.valid' 'FAIL' $actual }
+            elseif (-not $policy.static_ip_address) { Claim 'endpoint.ip_configuration.valid' 'UNKNOWN' $actual @{ reason='no_assigned_address' } }
+            else {
+                $ok = $actual.address -eq $policy.static_ip_address -and $actual.prefix -eq [int](($policy.ip_prefix -split '/')[1]) -and
+                      (-not $policy.ip_gateway -or $actual.gateway -eq $policy.ip_gateway) -and
+                      (@($policy.dns_servers).Count -eq 0 -or (@($policy.dns_servers) -join ',') -eq ($actual.dns -join ','))
+                BoolClaim 'endpoint.ip_configuration.valid' $ok $actual
+            }
+        }
+    }
+} catch { Claim 'endpoint.ip_configuration.valid' 'UNKNOWN' $null @{ error=$_.Exception.GetType().Name } }
 try {
     # Pre-Suro "kursant" scripts: a SYSTEM startup task resets the firewall at every boot. Read-only; see docs/developers/legacy-credentials.md.
     $legacy = @{ startup_task=$null; persisting_scripts=@(); firewall_rule_addresses=@(); winre_state=$null }

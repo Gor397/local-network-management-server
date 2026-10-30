@@ -66,7 +66,7 @@ Test missing evidence, stale evidence, future timestamps, wrong source, wrong po
 
 ## Add a policy control or layer behavior
 
-Update `PolicyDocument`, then the merge/relaxation rules, server compilation, agent schema validation, and actual inspection/remediation as applicable. The server and C# allowlists must evolve together.
+Update `PolicyDocument`, then the merge/relaxation rules, server compilation, agent schema validation, and actual inspection/remediation as applicable. The server and C# allowlists must evolve together. Every field also needs a visual control and translations; follow [adding a setting](policy-editor.md#adding-a-setting).
 
 Do not add a field to the schema and describe enforcement as implemented if no collector or actuator uses it. Test version invalidation and any restriction relaxation. Scope changes should compile into a new immutable assigned version.
 

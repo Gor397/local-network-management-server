@@ -56,6 +56,7 @@ Create snapshots before each mutation test. Use a throwaway Windows 11 VM with o
 | Storage assessment | VM without D:, BitLocker and recovery partitions | Assessment flags; no resize/format operation is triggered |
 | Legacy kursant computer | Snapshot a VM, run the original `kursant_script_*.ps1` on it, install the agent, recheck | `legacy` inventory (task, `kursant_username`, allowlist, `ReAgent.xml` state), adapter `media_type`; the revealed `AcademyAdmin` password signs in |
 | Legacy task retirement | On the kursant VM snapshot: retire the task with WinRE, reboot, then migrate the firewall with `replace_legacy_rules`, reboot again | Task Disabled with XML backup; rules unchanged after the first reboot; Suro rules present, legacy rules disabled and heartbeats continuing after the second; forced management failure restores the backup |
+| Policy features | Install agent 0.2 on a VM assigned a policy with `min_d_gb` and `ip_mode=static` plus a device address; then downgrade to 0.1 | 0.2 heartbeat lists features and receives the keys; claims for D: size and IP match `Get-Volume`/`Get-NetIPConfiguration`; loop follows `heartbeat_seconds`; 0.1 still accepts its v1 projection |
 | Legacy algorithm | Run only `Convert-MacToUniquePassword` on the vectors in [legacy credentials](legacy-credentials.md#confirming-the-port-against-windows-powershell) | Identical output; no machine change |
 
 Do not simulate Windows success by changing database rows or relaxing unknown checks. Tests should observe actual effective Windows state.

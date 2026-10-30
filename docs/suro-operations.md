@@ -24,6 +24,12 @@ Rebranding does not require recreating the database, changing Compose project na
 
 Full-network enforcement is never switched on automatically. Each stage change is an edit to `.env` and a restart, made by an administrator.
 
+## Policies
+
+Policies → **New policy** → choose a template → change settings with the switches and fields → **Save draft**. Nothing reaches computers until **Review and publish**, which lists every changed setting, how risky it is and how many computers it affects. Then open **Assign**, choose computers, Windows computer groups or all managed computers, review the counts and apply. **Compliance** shows what computers actually reported; click a computer to see which requirements are missing and how to fix them. **Versions** compares versions and restores an older one into the draft.
+
+Each setting shows whether Windows applies it automatically, only after an approved maintenance job, or only checks it. Settings marked *Not available yet* are not done by Suro. Disk, account and network changes are never forced by publishing. See the [policy editor guide](developers/policy-editor.md).
+
 ## Network explorer and computer status
 
 Network → **Network explorer** shows AP groups, their access points and the registered computers on them now. Selecting an access point lists its connected and previously seen computers; selecting a computer links to its full page. The status cards filter the lists.

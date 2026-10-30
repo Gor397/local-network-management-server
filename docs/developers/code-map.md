@@ -15,6 +15,7 @@ All paths below are relative to the repository root. Start with the smallest row
 | Cryptography | `backend/app/security/crypto.py` | `Vault`, RSA policy signatures, device certificate issuance |
 | Inventory and exceptions | `backend/app/api/devices.py`, `backend/app/services/devices.py` | Registration, effective state, reassessment, alert deduplication |
 | Declarative schema and check catalog | `backend/app/policies/schema.py` | `PolicyDocument`, `CATALOG`, `merge_layers` |
+| Visual editor catalog | `backend/app/policies/catalog.py` | `SETTINGS` (controls, enforcement, risk), templates, `diff`, `server_checks`, `agent_document`; see [policy editor](policy-editor.md) |
 | Policy layering | `backend/app/policies/resolver.py` | Global/class/group/device applicability |
 | Publication and assignment | `backend/app/api/policies.py` | Immutable versions, optimistic concurrency, invalidation |
 | Compliance decisions | `backend/app/compliance/engine.py` | Freshness, source/version checks, mandatory gates, score |
@@ -79,6 +80,7 @@ Paths in this table are relative to `agent/src/` unless explicitly stated otherw
 | File | Responsibility |
 |---|---|
 | `frontend/src/pages/SuroPages.tsx` | Infrastructure/groups/owners/incidents/topology/monitoring pages; loaded on demand |
+| `frontend/src/pages/PolicyStudio.tsx` | Policies list, visual editor, review/publish, assignment, per-policy compliance, versions (`#policies/ID`) |
 | `frontend/src/pages/NetworkExplorer.tsx` | AP group → AP → computer tree, status filters and details pane (`#explorer`) |
 | `frontend/src/components/AdminCredential.tsx` | Device page **Local administrator** tab |
 | `frontend/src/help/v1/{en,hy,ru}.json` | Versioned native contextual articles; use stable IDs rather than copying prose |

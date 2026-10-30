@@ -11,8 +11,11 @@ namespace Lantern.Service;
 public sealed class PolicyWorker(AgentConfiguration config, LocalState state, AgentTransport transport,
     ILogger<PolicyWorker> logger) : BackgroundService
 {
+    // Policy features this agent understands; the server sends other settings only to agents listing them.
+    static readonly string[] Features = ["min_d_gb", "ip_mode", "heartbeat_interval"];
     string? etag;
     int failures;
+    int? policySeconds;
     readonly DateTimeOffset started = DateTimeOffset.UtcNow;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -45,7 +48,7 @@ public sealed class PolicyWorker(AgentConfiguration config, LocalState state, Ag
                 await state.Log("agent.cycle_failed", new { error = exception.GetType().Name, failures });
                 try { await diagnostics.Capture(exception is HttpRequestException ? (bool?)false : null, stoppingToken); } catch (Exception) { /* Reporting failure must not create an unbounded retry loop. */ }
             }
-            int seconds = Math.Min(900, config.PollSeconds * (1 << Math.Min(failures, 3)));
+            int seconds = Math.Min(900, (policySeconds ?? config.PollSeconds) * (1 << Math.Min(failures, 3)));
             try { await Task.Delay(TimeSpan.FromSeconds(seconds + Random.Shared.Next(0, 10)), stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
@@ -69,7 +72,7 @@ public sealed class PolicyWorker(AgentConfiguration config, LocalState state, Ag
         }
         using var heartbeat = await transport.Send(HttpMethod.Post, "api/v1/agent/heartbeat", new {
             agent_version = typeof(PolicyWorker).Assembly.GetName().Version?.ToString() ?? "0.1.0",
-            os_version = Environment.OSVersion.VersionString, policy_version_id = version,
+            os_version = Environment.OSVersion.VersionString, policy_version_id = version, policy_features = Features,
             health = new { uptime_seconds = (int)(DateTimeOffset.UtcNow - started).TotalSeconds, service_running = true }
         }, cancellationToken: token);
         heartbeat.EnsureSuccessStatusCode();
@@ -96,6 +99,8 @@ public sealed class PolicyWorker(AgentConfiguration config, LocalState state, Ag
         var policy = signed.RootElement.GetProperty("document");
         version = signed.RootElement.GetProperty("version_id").GetString();
         await state.Save("policy.document.json", policy.GetRawText());
+        if (policy.TryGetProperty("heartbeat_seconds", out var interval) && interval.ValueKind == JsonValueKind.Number)
+            policySeconds = Math.Clamp(interval.GetInt32(), 30, 3600);
         var inspection = await Inspect(token);
         string mode = signed.RootElement.GetProperty("mode").GetString()!;
         if (mode is "CONTINUOUS" or "APPROVED_REMEDIATION")
@@ -123,7 +128,7 @@ public sealed class PolicyWorker(AgentConfiguration config, LocalState state, Ag
             compliance.EnsureSuccessStatusCode();
             using var health = await transport.Send(HttpMethod.Post, "api/v1/agent/heartbeat", new {
                 agent_version = typeof(PolicyWorker).Assembly.GetName().Version?.ToString(), os_version = Environment.OSVersion.VersionString,
-                policy_version_id = version, health = inspection.RootElement.GetProperty("health") }, cancellationToken: token);
+                policy_version_id = version, policy_features = Features, health = inspection.RootElement.GetProperty("health") }, cancellationToken: token);
             health.EnsureSuccessStatusCode();
         }
         await state.Log("policy.assessed", new { version, mode });

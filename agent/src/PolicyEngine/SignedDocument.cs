@@ -21,7 +21,9 @@ public static class SignedDocument
 
     public static void ValidatePolicy(JsonElement envelope, string deviceId)
     {
-        string[] allowed = ["schema_version", "admin_account", "user_account", "require_d", "hide_c", "approved_admins", "firewall_allowances", "mandatory_checks", "weights", "heartbeat_seconds", "heartbeat_deadline_seconds", "evidence_ttl_seconds", "quarantine_on_failure", "quarantine_on_missing_heartbeat", "remediation_grace_seconds", "auto_remediate"];
+        string[] allowed = ["schema_version", "admin_account", "user_account", "require_d", "hide_c", "approved_admins", "firewall_allowances", "mandatory_checks", "weights", "heartbeat_seconds", "heartbeat_deadline_seconds", "evidence_ttl_seconds", "quarantine_on_failure", "quarantine_on_missing_heartbeat", "remediation_grace_seconds", "auto_remediate",
+            // Sent only to agents that report the matching feature (backend/app/policies/catalog.py AGENT_FEATURE_KEYS).
+            "min_d_gb", "ip_mode", "ip_prefix", "ip_gateway", "dns_servers", "static_ip_address"];
         if (envelope.GetProperty("schema_version").GetInt32() != 1 || envelope.GetProperty("device_id").GetString() != deviceId)
             throw new InvalidDataException("Policy identity or schema mismatch.");
         if (UtcInstant(envelope.GetProperty("valid_until").GetString()!) < DateTime.UtcNow)

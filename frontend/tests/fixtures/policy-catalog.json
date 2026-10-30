@@ -1,0 +1,822 @@
+{
+ "categories": [
+  "accounts",
+  "disk",
+  "network",
+  "firewall",
+  "system",
+  "software",
+  "agent",
+  "advanced"
+ ],
+ "checks": {
+  "account.admin.exists": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "account.admin.member_of_administrators": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "account.unexpected_administrators.absent": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "account.user.exists": {
+   "severity": "high",
+   "source": "agent"
+  },
+  "account.user.not_administrator": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "agent.integrity_valid": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "agent.policy_version_current": {
+   "severity": "critical",
+   "source": "server"
+  },
+  "agent.service_running": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "disk.c.valid": {
+   "severity": "high",
+   "source": "agent"
+  },
+  "disk.d.valid": {
+   "severity": "high",
+   "source": "agent"
+  },
+  "disk.user_data_location.valid": {
+   "severity": "high",
+   "source": "agent"
+  },
+  "endpoint.ip_configuration.valid": {
+   "severity": "high",
+   "source": "agent"
+  },
+  "firewall.enabled": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "firewall.managed_rules.valid": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "firewall.outbound_policy.valid": {
+   "severity": "critical",
+   "source": "agent"
+  },
+  "network.internet_restriction.valid": {
+   "severity": "critical",
+   "source": "network"
+  },
+  "network.ip_reservation.valid": {
+   "severity": "high",
+   "source": "network"
+  },
+  "network.isolation.valid": {
+   "severity": "critical",
+   "source": "network"
+  },
+  "network.mac_identity.valid": {
+   "severity": "high",
+   "source": "network"
+  },
+  "security.user_restrictions.valid": {
+   "severity": "high",
+   "source": "agent"
+  }
+ },
+ "default": {
+  "admin_account": "admin",
+  "allow_software_deployment": true,
+  "approved_admins": [
+   "admin"
+  ],
+  "auto_remediate": [],
+  "block_internet": true,
+  "dns_servers": [],
+  "evidence_ttl_seconds": 300,
+  "firewall_allowances": [],
+  "heartbeat_deadline_seconds": 300,
+  "heartbeat_seconds": 120,
+  "hide_c": false,
+  "ip_gateway": null,
+  "ip_mode": "unmanaged",
+  "ip_prefix": null,
+  "mandatory_checks": [
+   "account.admin.exists",
+   "account.admin.member_of_administrators",
+   "account.user.exists",
+   "account.user.not_administrator",
+   "account.unexpected_administrators.absent",
+   "disk.c.valid",
+   "disk.d.valid",
+   "disk.user_data_location.valid",
+   "firewall.enabled",
+   "firewall.outbound_policy.valid",
+   "firewall.managed_rules.valid",
+   "network.ip_reservation.valid",
+   "network.mac_identity.valid",
+   "network.internet_restriction.valid",
+   "network.isolation.valid",
+   "security.user_restrictions.valid",
+   "agent.service_running",
+   "agent.integrity_valid",
+   "agent.policy_version_current",
+   "endpoint.ip_configuration.valid"
+  ],
+  "min_d_gb": 0,
+  "quarantine_on_failure": false,
+  "quarantine_on_missing_heartbeat": false,
+  "remediation_grace_seconds": 300,
+  "require_admin_account": true,
+  "require_d": true,
+  "require_standard_user": true,
+  "require_user_data_on_d": true,
+  "schema_version": 1,
+  "static_ip_address": null,
+  "user_account": "user",
+  "weights": {}
+ },
+ "management": {
+  "ports": [
+   8443
+  ],
+  "protocol": "TCP",
+  "remote": "192.168.88.10/32"
+ },
+ "settings": [
+  {
+   "category": "accounts",
+   "control": "toggle",
+   "enforcement": "detected",
+   "id": "require_admin_account",
+   "key": "require_admin_account",
+   "risk": "safe"
+  },
+  {
+   "category": "accounts",
+   "control": "text",
+   "enforcement": "detected",
+   "id": "admin_account",
+   "key": "admin_account",
+   "risk": "safe",
+   "visible_if": {
+    "require_admin_account": [
+     true
+    ]
+   }
+  },
+  {
+   "category": "accounts",
+   "control": "toggle",
+   "enforcement": "detected",
+   "id": "require_standard_user",
+   "key": "require_standard_user",
+   "risk": "safe"
+  },
+  {
+   "category": "accounts",
+   "control": "text",
+   "enforcement": "detected",
+   "id": "user_account",
+   "key": "user_account",
+   "risk": "safe",
+   "visible_if": {
+    "require_standard_user": [
+     true
+    ]
+   }
+  },
+  {
+   "category": "accounts",
+   "control": "flag",
+   "enforcement": "agent",
+   "id": "demote_standard_user",
+   "key": "auto_remediate",
+   "risk": "high",
+   "value": "account.demote_user",
+   "visible_if": {
+    "require_standard_user": [
+     true
+    ]
+   }
+  },
+  {
+   "category": "accounts",
+   "control": "list",
+   "enforcement": "detected",
+   "id": "approved_admins",
+   "key": "approved_admins",
+   "risk": "safe"
+  },
+  {
+   "category": "accounts",
+   "control": "flag",
+   "enforcement": "detected",
+   "id": "legacy_admin_accepted",
+   "key": "approved_admins",
+   "risk": "safe",
+   "value": "AcademyAdmin"
+  },
+  {
+   "category": "accounts",
+   "control": "protected",
+   "enforcement": "protected",
+   "id": "preserve_user_files",
+   "key": "preserve_user_files",
+   "risk": "safe"
+  },
+  {
+   "category": "disk",
+   "control": "toggle",
+   "enforcement": "detected",
+   "id": "require_d",
+   "key": "require_d",
+   "risk": "high"
+  },
+  {
+   "category": "disk",
+   "control": "number",
+   "enforcement": "detected",
+   "feature": "min_d_gb",
+   "id": "min_d_gb",
+   "key": "min_d_gb",
+   "max": 16384,
+   "min": 0,
+   "risk": "high",
+   "unit": "GB",
+   "visible_if": {
+    "require_d": [
+     true
+    ]
+   }
+  },
+  {
+   "category": "disk",
+   "control": "toggle",
+   "enforcement": "detected",
+   "id": "require_user_data_on_d",
+   "key": "require_user_data_on_d",
+   "risk": "high",
+   "visible_if": {
+    "require_d": [
+     true
+    ]
+   }
+  },
+  {
+   "category": "disk",
+   "control": "protected",
+   "enforcement": "protected",
+   "id": "backup_before_disk_changes",
+   "key": "backup_before_disk_changes",
+   "risk": "safe"
+  },
+  {
+   "category": "disk",
+   "control": "protected",
+   "enforcement": "protected",
+   "id": "no_automatic_repartition",
+   "key": "no_automatic_repartition",
+   "risk": "safe"
+  },
+  {
+   "category": "disk",
+   "control": "unavailable",
+   "enforcement": "unavailable",
+   "id": "protect_system_files",
+   "key": "protect_system_files",
+   "risk": "safe"
+  },
+  {
+   "category": "network",
+   "control": "select",
+   "enforcement": "detected",
+   "feature": "ip_mode",
+   "id": "ip_mode",
+   "key": "ip_mode",
+   "options": [
+    "unmanaged",
+    "dhcp",
+    "dhcp_reservation",
+    "static"
+   ],
+   "risk": "network"
+  },
+  {
+   "category": "network",
+   "control": "text",
+   "enforcement": "detected",
+   "feature": "ip_mode",
+   "format": "cidr",
+   "id": "ip_prefix",
+   "key": "ip_prefix",
+   "risk": "network",
+   "visible_if": {
+    "ip_mode": [
+     "static"
+    ]
+   }
+  },
+  {
+   "category": "network",
+   "control": "text",
+   "enforcement": "detected",
+   "feature": "ip_mode",
+   "format": "ipv4",
+   "id": "ip_gateway",
+   "key": "ip_gateway",
+   "risk": "network",
+   "visible_if": {
+    "ip_mode": [
+     "static"
+    ]
+   }
+  },
+  {
+   "category": "network",
+   "control": "list",
+   "enforcement": "detected",
+   "feature": "ip_mode",
+   "format": "ipv4",
+   "id": "dns_servers",
+   "key": "dns_servers",
+   "max_items": 4,
+   "risk": "network",
+   "visible_if": {
+    "ip_mode": [
+     "static"
+    ]
+   }
+  },
+  {
+   "category": "network",
+   "control": "protected",
+   "enforcement": "protected",
+   "id": "static_address_per_computer",
+   "key": "static_address_per_computer",
+   "risk": "safe",
+   "visible_if": {
+    "ip_mode": [
+     "static"
+    ]
+   }
+  },
+  {
+   "category": "network",
+   "control": "protected",
+   "enforcement": "protected",
+   "id": "verify_connectivity",
+   "key": "verify_connectivity",
+   "risk": "safe"
+  },
+  {
+   "category": "network",
+   "control": "unavailable",
+   "enforcement": "unavailable",
+   "id": "apply_ip_configuration",
+   "key": "apply_ip_configuration",
+   "risk": "safe",
+   "visible_if": {
+    "ip_mode": [
+     "static",
+     "dhcp"
+    ]
+   }
+  },
+  {
+   "category": "firewall",
+   "control": "toggle",
+   "enforcement": "approval",
+   "id": "block_internet",
+   "key": "block_internet",
+   "risk": "network"
+  },
+  {
+   "category": "firewall",
+   "control": "protected",
+   "enforcement": "protected",
+   "id": "management_always_allowed",
+   "key": "management_always_allowed",
+   "risk": "safe"
+  },
+  {
+   "category": "firewall",
+   "control": "allowances",
+   "enforcement": "approval",
+   "id": "firewall_allowances",
+   "key": "firewall_allowances",
+   "risk": "network",
+   "visible_if": {
+    "block_internet": [
+     true
+    ]
+   }
+  },
+  {
+   "category": "firewall",
+   "control": "flag",
+   "enforcement": "agent",
+   "id": "firewall_auto_enable",
+   "key": "auto_remediate",
+   "risk": "safe",
+   "value": "firewall.enable"
+  },
+  {
+   "category": "system",
+   "control": "toggle",
+   "enforcement": "detected",
+   "id": "hide_c",
+   "key": "hide_c",
+   "risk": "restart"
+  },
+  {
+   "category": "system",
+   "control": "flag",
+   "enforcement": "agent",
+   "id": "hide_c_auto",
+   "key": "auto_remediate",
+   "risk": "restart",
+   "value": "settings.hide_c",
+   "visible_if": {
+    "hide_c": [
+     true
+    ]
+   }
+  },
+  {
+   "category": "software",
+   "control": "toggle",
+   "enforcement": "server",
+   "id": "allow_software_deployment",
+   "key": "allow_software_deployment",
+   "risk": "safe"
+  },
+  {
+   "category": "agent",
+   "control": "number",
+   "enforcement": "agent",
+   "feature": "heartbeat_interval",
+   "id": "heartbeat_seconds",
+   "key": "heartbeat_seconds",
+   "max": 3600,
+   "min": 30,
+   "risk": "safe",
+   "unit": "seconds"
+  },
+  {
+   "category": "agent",
+   "control": "number",
+   "enforcement": "server",
+   "id": "heartbeat_deadline_seconds",
+   "key": "heartbeat_deadline_seconds",
+   "max": 86400,
+   "min": 90,
+   "risk": "safe",
+   "unit": "seconds"
+  },
+  {
+   "category": "agent",
+   "control": "number",
+   "enforcement": "server",
+   "id": "evidence_ttl_seconds",
+   "key": "evidence_ttl_seconds",
+   "max": 3600,
+   "min": 60,
+   "risk": "safe",
+   "unit": "seconds"
+  },
+  {
+   "category": "agent",
+   "control": "protected",
+   "enforcement": "protected",
+   "id": "offline_policy_cache",
+   "key": "offline_policy_cache",
+   "risk": "safe"
+  },
+  {
+   "category": "agent",
+   "control": "unavailable",
+   "enforcement": "unavailable",
+   "id": "automatic_retry",
+   "key": "automatic_retry",
+   "risk": "safe"
+  },
+  {
+   "category": "advanced",
+   "control": "checks",
+   "enforcement": "server",
+   "id": "mandatory_checks",
+   "key": "mandatory_checks",
+   "options": [
+    "account.admin.exists",
+    "account.admin.member_of_administrators",
+    "account.user.exists",
+    "account.user.not_administrator",
+    "account.unexpected_administrators.absent",
+    "disk.c.valid",
+    "disk.d.valid",
+    "disk.user_data_location.valid",
+    "firewall.enabled",
+    "firewall.outbound_policy.valid",
+    "firewall.managed_rules.valid",
+    "network.ip_reservation.valid",
+    "network.mac_identity.valid",
+    "network.internet_restriction.valid",
+    "network.isolation.valid",
+    "security.user_restrictions.valid",
+    "agent.service_running",
+    "agent.integrity_valid",
+    "agent.policy_version_current",
+    "endpoint.ip_configuration.valid"
+   ],
+   "risk": "safe"
+  },
+  {
+   "category": "advanced",
+   "control": "toggle",
+   "enforcement": "server",
+   "id": "quarantine_on_failure",
+   "key": "quarantine_on_failure",
+   "risk": "network"
+  },
+  {
+   "category": "advanced",
+   "control": "toggle",
+   "enforcement": "server",
+   "id": "quarantine_on_missing_heartbeat",
+   "key": "quarantine_on_missing_heartbeat",
+   "risk": "network"
+  },
+  {
+   "category": "advanced",
+   "control": "number",
+   "enforcement": "server",
+   "id": "remediation_grace_seconds",
+   "key": "remediation_grace_seconds",
+   "max": 86400,
+   "min": 0,
+   "risk": "safe",
+   "unit": "seconds",
+   "visible_if": {
+    "quarantine_on_failure": [
+     true
+    ]
+   }
+  }
+ ],
+ "templates": {
+  "custom": {
+   "admin_account": "admin",
+   "allow_software_deployment": true,
+   "approved_admins": [
+    "admin"
+   ],
+   "auto_remediate": [],
+   "block_internet": true,
+   "dns_servers": [],
+   "evidence_ttl_seconds": 300,
+   "firewall_allowances": [
+    {
+     "ports": [
+      8443
+     ],
+     "protocol": "TCP",
+     "remote": "192.168.88.10/32"
+    }
+   ],
+   "heartbeat_deadline_seconds": 300,
+   "heartbeat_seconds": 120,
+   "hide_c": false,
+   "ip_gateway": null,
+   "ip_mode": "unmanaged",
+   "ip_prefix": null,
+   "mandatory_checks": [
+    "account.admin.exists",
+    "account.admin.member_of_administrators",
+    "account.user.exists",
+    "account.user.not_administrator",
+    "account.unexpected_administrators.absent",
+    "disk.c.valid",
+    "disk.d.valid",
+    "disk.user_data_location.valid",
+    "firewall.enabled",
+    "firewall.outbound_policy.valid",
+    "firewall.managed_rules.valid",
+    "network.ip_reservation.valid",
+    "network.mac_identity.valid",
+    "network.internet_restriction.valid",
+    "network.isolation.valid",
+    "security.user_restrictions.valid",
+    "agent.service_running",
+    "agent.integrity_valid",
+    "agent.policy_version_current",
+    "endpoint.ip_configuration.valid"
+   ],
+   "min_d_gb": 0,
+   "quarantine_on_failure": false,
+   "quarantine_on_missing_heartbeat": false,
+   "remediation_grace_seconds": 300,
+   "require_admin_account": true,
+   "require_d": true,
+   "require_standard_user": true,
+   "require_user_data_on_d": true,
+   "schema_version": 1,
+   "static_ip_address": null,
+   "user_account": "user",
+   "weights": {}
+  },
+  "maintenance": {
+   "admin_account": "admin",
+   "allow_software_deployment": true,
+   "approved_admins": [
+    "admin"
+   ],
+   "auto_remediate": [],
+   "block_internet": true,
+   "dns_servers": [],
+   "evidence_ttl_seconds": 300,
+   "firewall_allowances": [
+    {
+     "ports": [
+      8443
+     ],
+     "protocol": "TCP",
+     "remote": "192.168.88.10/32"
+    }
+   ],
+   "heartbeat_deadline_seconds": 300,
+   "heartbeat_seconds": 60,
+   "hide_c": false,
+   "ip_gateway": null,
+   "ip_mode": "unmanaged",
+   "ip_prefix": null,
+   "mandatory_checks": [
+    "account.admin.exists",
+    "account.admin.member_of_administrators",
+    "account.user.exists",
+    "account.user.not_administrator",
+    "account.unexpected_administrators.absent",
+    "disk.c.valid",
+    "disk.d.valid",
+    "disk.user_data_location.valid",
+    "firewall.enabled",
+    "firewall.outbound_policy.valid",
+    "firewall.managed_rules.valid",
+    "network.ip_reservation.valid",
+    "network.mac_identity.valid",
+    "network.internet_restriction.valid",
+    "network.isolation.valid",
+    "security.user_restrictions.valid",
+    "agent.service_running",
+    "agent.integrity_valid",
+    "agent.policy_version_current",
+    "endpoint.ip_configuration.valid"
+   ],
+   "min_d_gb": 0,
+   "quarantine_on_failure": false,
+   "quarantine_on_missing_heartbeat": false,
+   "remediation_grace_seconds": 300,
+   "require_admin_account": true,
+   "require_d": true,
+   "require_standard_user": true,
+   "require_user_data_on_d": true,
+   "schema_version": 1,
+   "static_ip_address": null,
+   "user_account": "user",
+   "weights": {}
+  },
+  "restricted": {
+   "admin_account": "admin",
+   "allow_software_deployment": true,
+   "approved_admins": [
+    "admin"
+   ],
+   "auto_remediate": [
+    "firewall.enable",
+    "account.demote_user",
+    "settings.hide_c"
+   ],
+   "block_internet": true,
+   "dns_servers": [],
+   "evidence_ttl_seconds": 300,
+   "firewall_allowances": [
+    {
+     "ports": [
+      8443
+     ],
+     "protocol": "TCP",
+     "remote": "192.168.88.10/32"
+    }
+   ],
+   "heartbeat_deadline_seconds": 300,
+   "heartbeat_seconds": 120,
+   "hide_c": true,
+   "ip_gateway": null,
+   "ip_mode": "dhcp_reservation",
+   "ip_prefix": null,
+   "mandatory_checks": [
+    "account.admin.exists",
+    "account.admin.member_of_administrators",
+    "account.user.exists",
+    "account.user.not_administrator",
+    "account.unexpected_administrators.absent",
+    "disk.c.valid",
+    "disk.d.valid",
+    "disk.user_data_location.valid",
+    "firewall.enabled",
+    "firewall.outbound_policy.valid",
+    "firewall.managed_rules.valid",
+    "network.ip_reservation.valid",
+    "network.mac_identity.valid",
+    "network.internet_restriction.valid",
+    "network.isolation.valid",
+    "security.user_restrictions.valid",
+    "agent.service_running",
+    "agent.integrity_valid",
+    "agent.policy_version_current",
+    "endpoint.ip_configuration.valid"
+   ],
+   "min_d_gb": 0,
+   "quarantine_on_failure": false,
+   "quarantine_on_missing_heartbeat": false,
+   "remediation_grace_seconds": 300,
+   "require_admin_account": true,
+   "require_d": true,
+   "require_standard_user": true,
+   "require_user_data_on_d": true,
+   "schema_version": 1,
+   "static_ip_address": null,
+   "user_account": "user",
+   "weights": {}
+  },
+  "standard": {
+   "admin_account": "admin",
+   "allow_software_deployment": true,
+   "approved_admins": [
+    "admin"
+   ],
+   "auto_remediate": [
+    "firewall.enable"
+   ],
+   "block_internet": true,
+   "dns_servers": [],
+   "evidence_ttl_seconds": 300,
+   "firewall_allowances": [
+    {
+     "ports": [
+      8443
+     ],
+     "protocol": "TCP",
+     "remote": "192.168.88.10/32"
+    }
+   ],
+   "heartbeat_deadline_seconds": 300,
+   "heartbeat_seconds": 120,
+   "hide_c": false,
+   "ip_gateway": null,
+   "ip_mode": "dhcp_reservation",
+   "ip_prefix": null,
+   "mandatory_checks": [
+    "account.admin.exists",
+    "account.admin.member_of_administrators",
+    "account.user.exists",
+    "account.user.not_administrator",
+    "account.unexpected_administrators.absent",
+    "disk.c.valid",
+    "disk.d.valid",
+    "disk.user_data_location.valid",
+    "firewall.enabled",
+    "firewall.outbound_policy.valid",
+    "firewall.managed_rules.valid",
+    "network.ip_reservation.valid",
+    "network.mac_identity.valid",
+    "network.internet_restriction.valid",
+    "network.isolation.valid",
+    "security.user_restrictions.valid",
+    "agent.service_running",
+    "agent.integrity_valid",
+    "agent.policy_version_current",
+    "endpoint.ip_configuration.valid"
+   ],
+   "min_d_gb": 0,
+   "quarantine_on_failure": false,
+   "quarantine_on_missing_heartbeat": false,
+   "remediation_grace_seconds": 300,
+   "require_admin_account": true,
+   "require_d": true,
+   "require_standard_user": true,
+   "require_user_data_on_d": true,
+   "schema_version": 1,
+   "static_ip_address": null,
+   "user_account": "user",
+   "weights": {}
+  }
+ }
+}

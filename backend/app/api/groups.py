@@ -253,9 +253,14 @@ def effective(device_id: str, admin=Depends(require("read")), db=Depends(db_sess
         value, conflicts = resolve(db, p.id, baseline.document, d), []
     except ValueError as exc:
         value, conflicts = None, [str(exc)]
+    from app.policies.resolver import applicable_layers
     return {
         "assigned": current.document,
         "version_id": current.id,
+        "policy_id": p.id,
+        "policy_name": p.name,
+        # The UI explains each value: the policy sets it unless a later layer here overrides it.
+        "layers": applicable_layers(db, p.id, d),
         "effective": value,
         "conflicts": conflicts,
         "group_ids": list(

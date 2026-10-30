@@ -38,3 +38,23 @@ def test_skill_installation_is_idempotent_and_preserves_unrelated_skills(tmp_pat
         installer.install(collision)
     assert (protected / 'mine.txt').read_text() == 'user-owned skill'
     assert not (collision / installer.NAMES[1]).exists()
+
+
+def test_lab_preserves_retained_database_when_matching_keys_are_missing(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    lab=load('suro_lab','lab.py')
+    monkeypatch.setattr(lab,'DATA',tmp_path/'data');monkeypatch.setattr(lab,'ENV',tmp_path/'lab.env')
+    monkeypatch.setattr(lab.subprocess,'run',lambda *a,**kw:SimpleNamespace(returncode=0,stdout='lantern-lab_postgres_data\n'))
+    with pytest.raises(SystemExit,match='Retained lab database'):
+        lab.prepare()
+    assert not lab.ENV.exists() and not lab.DATA.exists()
+
+
+def test_lab_requires_storage_check_before_generating_keys(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    lab=load('suro_lab_offline','lab.py')
+    monkeypatch.setattr(lab,'DATA',tmp_path/'data');monkeypatch.setattr(lab,'ENV',tmp_path/'lab.env')
+    monkeypatch.setattr(lab.subprocess,'run',lambda *a,**kw:SimpleNamespace(returncode=1,stdout=''))
+    with pytest.raises(SystemExit,match='Cannot inspect retained lab storage'):
+        lab.prepare()
+    assert not lab.ENV.exists() and not lab.DATA.exists()

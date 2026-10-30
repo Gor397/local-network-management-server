@@ -63,7 +63,7 @@ def main():
                 db.delete(session)
             action = "admin.recovered_locally"
         db.add(AuditLog(actor_id="local-console", action=action, target_id=admin.id, details={}))
-    print("Administrator saved. Enable TOTP in dashboard Settings before privileged operations.")
+    print("Administrator saved. Username/password login is available; optional TOTP is in Settings.")
 
 
 if __name__ == "__main__":

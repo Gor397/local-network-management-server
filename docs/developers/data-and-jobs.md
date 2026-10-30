@@ -115,3 +115,25 @@ The worker currently removes expired nonces/sessions, health rows older than the
 Package objects, completed upload files, terminal recordings and local deployment ledgers need an operator retention policy; complete automatic cleanup is not implemented. Monitor storage headroom before large deployments.
 
 The Compose limits total 896 MiB for long-running containers by default, plus a transient 192 MiB migration container. These are configured ceilings, not measured idle usage or a guarantee that the entire Linux host fits in 1 GiB. Leave room for the OS, filesystem cache, Docker and image building. [Monitoring](../monitoring.md) gives commands.
+
+## Suro ownership and infrastructure records
+
+```mermaid
+erDiagram
+    Device ||--o{ UserIdentity : receives_reports
+    Device ||--o{ OwnerAssignment : keeps_assignment_history
+    Device ||--o{ GroupMember : joins
+    DeviceGroup ||--o{ GroupMember : contains
+    Router ||--o{ AccessPoint : exposes_radios
+    Router ||--o{ ApGroupMember : joins
+    ApGroup ||--o{ ApGroupMember : contains
+    Router ||--o{ RouterTelemetry : reports
+    Device ||--o{ ClientObservation : buffers_then_uploads
+    NetworkBatch ||--o{ OperationTarget : tracks
+    Router ||--o{ ConfigurationBackup : retains_encrypted_state
+    Incident ||--o{ IncidentHistory : records
+```
+
+`Router` is a physical infrastructure device; `AccessPoint` is a discovered radio/interface. An AP group therefore joins `Router`, preserving the original radio table and API. `NetworkBatch.kind` separates infrastructure work from endpoint requests; each target has its own state. The worker's durable infrastructure lease serializes batches while software deployment retains its existing independent task leases. A waiting reboot never becomes successful just because a request returned.
+
+`SystemSetting` stores approved monitoring budgets. Short-lived health and client observations expire; owner assignment history, incident investigation and administrator security audit are not automatically erased by telemetry retention. Encrypted configuration backups may contain Wi-Fi credentials and must be retained only within protected storage. See [the Suro workflow guide](suro-expansion.md) for state transitions, conflict resolution and recovery gates.

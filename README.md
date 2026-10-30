@@ -1,6 +1,6 @@
-# Lantern — local device and network management
+# Suro — local device and network management
 
-Lantern is an audit-first management server for Windows endpoints and MikroTik infrastructure. The server uses Docker Compose, FastAPI, PostgreSQL and a React dashboard. The agent is a native .NET 10 Windows Service.
+Suro is an audit-first management server for Windows endpoints and MikroTik infrastructure. The server uses Docker Compose, FastAPI, PostgreSQL and a React dashboard. The agent is a native .NET 10 Windows Service.
 
 **Current release: development / lab validation.** Enrollment, policy delivery, measured compliance, RouterOS discovery and change previews, package deployment orchestration, and an SSH broker have executable implementations. Complete VLAN quarantine, independent isolation/internet verification, destructive storage migration, and several Windows effectiveness checks are not complete. See the [implementation ledger](docs/progress.md) before enabling enforcement.
 
@@ -16,6 +16,8 @@ Lantern is an audit-first management server for Windows endpoints and MikroTik i
 
 ## Run the server
 
+`make help` lists every command. Production in short: `make prod-bootstrap LAN_IP=192.168.88.10`, `make prod-build`, `make prod-up`, `make prod-admin`. Development in short: `make install`, `make check`, `make lab`. On a dual-homed laptop, read [dual-network setup](docs/development/dual-network-setup.md) first.
+
 On a Linux host with Docker Engine, a recent Docker Compose plugin, and OpenSSL:
 
 ```sh
@@ -30,7 +32,7 @@ docker compose up -d
 docker compose exec backend python -m app.cli create-admin --username admin
 ```
 
-Trust the generated TLS certificate, open `https://192.168.88.10`, sign in, and configure TOTP in Settings. Router writes, software deployment, and SSH are disabled in the generated configuration. Existing endpoints start in Audit Mode. [Full setup and offline procedure](docs/installation.md).
+Trust the generated TLS certificate, open `https://192.168.88.10`, and sign in with username/password. Optional TOTP is available in Settings. Router writes, software deployment, SSH, and automatic recovery are disabled in the generated configuration. Existing endpoints start in Audit Mode. [Full setup and offline procedure](docs/installation.md).
 
 ## Build and test
 
@@ -46,6 +48,7 @@ npm run build
 cd ..
 
 dotnet build agent/src/NetworkPolicyClient.csproj -c Release
+dotnet build agent/ui/Suro.Identity.UI.csproj -c Release
 dotnet run --project agent/tests/AgentContractTests.csproj -c Release
 ```
 
@@ -64,6 +67,7 @@ backend/app/        API, authentication, data models, policy/compliance engines
 backend/migrations/ Alembic schema history
 backend/tests/      Server, protocol, migration and simulated RouterOS tests
 agent/src/          Windows Service and bundled, allowlisted PowerShell operations
+agent/ui/           Separate Armenian-first user-session identification helper
 agent/installer/    WiX MSI project, signing and installation tooling
 agent/tests/        Cross-platform cryptographic contract tests
 frontend/src/       React dashboard and English/Armenian/Russian catalogs
@@ -74,3 +78,7 @@ docs/               Operator runbooks and detailed developer explanations
 ```
 
 MAC addresses map network interfaces; certificates authenticate managed endpoints. A DHCP reservation does not grant access. A router API readback does not prove endpoint isolation. Unknown checks never count as passing.
+
+## Suro platform extension
+
+Armenian is the initial dashboard and identity-helper language; English and Russian are selectable immediately. Start with [the illustrated Suro developer guide](docs/developers/suro-expansion.md), [the administrator workflow](docs/suro-operations.md), and [optional MFA in three languages](docs/authentication.md). Read [progress](docs/progress.md) for verified scope. Existing database/Compose/Windows identity names are preserved for upgrade compatibility.

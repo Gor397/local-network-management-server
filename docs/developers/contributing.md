@@ -103,3 +103,9 @@ The current locale test checks matching key sets, nonempty values and Unicode; i
 ## Keep handoff notes useful
 
 Update [progress](../progress.md) with four distinct facts: implemented code, automated validation, simulation, and hardware verification. Include exact commands for a new workflow and document actual limitations. Do not replace concrete findings with a generic claim of production readiness.
+
+## Suro feature routes
+
+For owners, overlapping groups, AP batches, incidents, topology and the user-session helper, use [the illustrated extension guide](suro-expansion.md). Keep new modules readable; `frontend` includes Prettier as a development dependency (`npx prettier --write path/to/changed.tsx`). Python modules use conventional multi-line formatting. Format the changed files rather than producing unrelated repository-wide formatting diffs. Re-run the relevant focused checks after behavioral changes.
+
+Preserve existing state identifiers during Suro branding work. MFA defaults to optional username/password login. New UI fields need all three translations and an exact contextual-help mapping; use Armenian as the initial locale and keep a valid saved language preference. Before a privileged form submits, check that empty/unchanged inputs do not inadvertently enable a radio, clear a host key, or overwrite an unrelated setting.

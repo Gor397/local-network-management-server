@@ -83,7 +83,7 @@ Maintenance result records remain endpoint reports. The next inventory/complianc
 
 ```mermaid
 flowchart LR
-    Browser["Browser + session + recent MFA"] --> Ticket["Single-session authorization ticket"]
+    Browser["Browser + session + optional enforced MFA"] --> Ticket["Single-session authorization ticket"]
     Ticket --> Broker["FastAPI WebSocket broker"]
     Broker -->|"Dedicated key + pinned host key"| SSH["Windows OpenSSH"]
     Broker --> Record["Encrypted input/output frames"]

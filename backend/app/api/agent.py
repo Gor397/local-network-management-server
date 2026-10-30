@@ -59,15 +59,17 @@ def enroll(body: Enroll, request: Request, response: Response, db=Depends(db_ses
 def policy(request: Request, response: Response, d=Depends(agent_identity), db=Depends(db_session)):
     if not d.policy_version_id:
         raise HTTPException(404, "policy.unassigned")
-    etag = f'"{d.policy_version_id}:{d.revision}"'
+    from app.services.safety import agent_mode
+    mode = agent_mode(request.app.state.settings, d)
+    etag = f'"{d.policy_version_id}:{d.revision}:{mode}"'
     if request.headers.get("if-none-match") == etag:
         response.status_code = 304
         return None
     version = db.get(PolicyVersion, d.policy_version_id)
     response.headers["ETag"] = etag
     return request.app.state.vault.signed({"schema_version": 1, "device_id": d.id, "version_id": version.id,
-                                          "revision": d.revision, "mode": d.mode, "document": version.document,
-                                          "valid_until": (utcnow() + timedelta(hours=24)).isoformat()})
+                                          "revision": d.revision, "mode": mode, "document": version.document,
+                                          "valid_until": (utcnow() + timedelta(hours=24)).isoformat()+"Z"})
 
 
 class Heartbeat(BaseModel):
@@ -110,9 +112,12 @@ def compliance(body: Evidence, d=Depends(agent_identity), db=Depends(db_session)
             raise HTTPException(422, "compliance.invalid_source")
         # Arrival time is authoritative for freshness; endpoint clock isn't trusted.
         claims[name] = {**claim, "verified_at": utcnow().isoformat(), "source": "agent", "version_id": d.policy_version_id}
-    allowed = {"users", "volumes", "partitions", "firewall", "network_adapters", "hardware", "os", "bitlocker", "storage_readiness", "data_locations", "settings"}
+    allowed = {"users", "volumes", "partitions", "firewall", "network_adapters", "hardware", "os", "bitlocker", "storage_readiness", "data_locations", "settings", "session"}
     d.inventory = {k: v for k, v in body.inventory.items() if k in allowed}
     d.inventory = {**d.inventory, "claims": claims}
+    session = d.inventory.get("session", {})
+    if isinstance(session, dict) and isinstance(session.get("windows_account"), str) and isinstance(session.get("windows_sid"), str):
+        d.last_user_account, d.last_user_sid, d.last_user_seen = session["windows_account"][:256], session["windows_sid"][:184], utcnow()
     d.reported_policy_id = body.policy_version_id
     for adapter in d.inventory.get("network_adapters", []):
         try:

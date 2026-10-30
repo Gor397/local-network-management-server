@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from pydantic import BaseModel, Field
 from typing import Literal
 from app.auth.dependencies import db_session, require, admin_session, audit
+from app.services.safety import operation_mode
 from app.db import utcnow
 from app.models import Device, Alert, AuditLog, Router, DeviceGroup, GroupMember, Administrator, Role
 from app.services.devices import serialize_device, device_or_404
@@ -34,7 +35,16 @@ def dashboard(request: Request, admin=Depends(require("read")), db=Depends(db_se
             "routers": db.scalar(select(func.count()).select_from(Router)),
             "low_resource_mode": settings.low_resource_mode, "poll_seconds": settings.poll_seconds,
             "deployment_concurrency": settings.deployment_concurrency,
-            "features": {"router_writes": settings.router_writes_enabled, "deployments": settings.deployment_enabled, "ssh": settings.ssh_enabled}}
+            "operation_mode": operation_mode(settings), "operation_mode_configured": bool(settings.operation_mode), "features": {"router_writes": operation_mode(settings) in ("controlled_test", "production"), "deployments": settings.deployment_enabled, "ssh": settings.ssh_enabled}}
+
+
+@router.get("/safety")
+def safety(request: Request, admin=Depends(require("read"))):
+    # Cheap enough for every page; the dashboard banner reads only this.
+    settings = request.app.state.settings
+    return {"mode": operation_mode(settings), "configured": bool(settings.operation_mode),
+            "test_routers": len([n for n in settings.test_routers.split(",") if n.strip()]),
+            "test_devices": len([n for n in settings.test_devices.split(",") if n.strip()])}
 
 
 @router.get("/alerts")
@@ -81,9 +91,13 @@ async def events(request: Request):
                 operator = db.get(Administrator, login.admin_id) if login else None
                 if not login or login.expires_at <= utcnow() or not operator or not operator.enabled:
                     break
+                from app.models import Router, Incident, OperationTarget
                 stamp = [str(db.scalar(select(func.max(Alert.created_at)))),
                          str(db.scalar(select(func.max(AuditLog.created_at)))),
-                         db.scalar(select(func.sum(Device.revision))) or 0]
+                         db.scalar(select(func.sum(Device.revision))) or 0,
+                         str(db.scalar(select(func.max(Router.last_health)))),
+                         str(db.scalar(select(func.max(Incident.last_observed)))),
+                         db.scalar(select(func.count()).select_from(OperationTarget).where(OperationTarget.state.in_(['SUCCEEDED','FAILED','UNKNOWN']))) or 0]
             if stamp != previous:
                 yield "event: revision\ndata: " + json.dumps(stamp) + "\n\n"
                 previous = stamp
@@ -91,28 +105,6 @@ async def events(request: Request):
                 yield ": keepalive\n\n"
             await asyncio.sleep(15)
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
-
-
-class GroupCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
-    device_ids: list[str] = Field(default_factory=list, max_length=1000)
-
-
-@router.get("/groups")
-def groups(admin=Depends(require("read")), db=Depends(db_session)):
-    return [{"id": g.id, "name": g.name, "device_ids": list(db.scalars(select(GroupMember.device_id).where(GroupMember.group_id == g.id)))} for g in db.scalars(select(DeviceGroup))]
-
-
-@router.post("/groups")
-def group(body: GroupCreate, admin=Depends(require("manage")), db=Depends(db_session)):
-    g = DeviceGroup(name=body.name)
-    db.add(g)
-    db.flush()
-    for device_id in set(body.device_ids):
-        device_or_404(db, device_id)
-        db.add(GroupMember(group_id=g.id, device_id=device_id))
-    audit(db, admin.id, "group.created", g.id, devices=body.device_ids)
-    return {"id": g.id}
 
 
 class AdminCreate(BaseModel):
@@ -173,3 +165,31 @@ def resources(request: Request, admin=Depends(require("read")), db=Depends(db_se
             "repository_logical_bytes": db.scalar(select(func.sum(SoftwarePackage.size))) or 0,
             "running_deployments": db.scalar(select(func.count()).select_from(DeploymentTask).where(DeploymentTask.state == 'RUNNING')),
             "low_resource_mode": request.app.state.settings.low_resource_mode}
+
+
+class MonitoringSettings(BaseModel):
+    low_resource_mode: bool = True
+    network_health_seconds: int = Field(default=60, ge=30, le=600)
+    network_inventory_seconds: int = Field(default=900, ge=300, le=86400)
+    network_poll_concurrency: int = Field(default=2, ge=1, le=4)
+    telemetry_retention_days: int = Field(default=7, ge=1, le=90)
+    recovery_enabled: bool = False
+    reason: str = Field(min_length=5,max_length=2000)
+
+
+@router.get('/system/monitoring-settings')
+def monitoring_settings(request: Request, admin=Depends(require('read')), db=Depends(db_session)):
+    from app.services.settings import MONITORING_KEYS, apply_monitoring
+    apply_monitoring(db,request.app.state.settings)
+    return {key:getattr(request.app.state.settings,key) for key in MONITORING_KEYS}
+
+
+@router.put('/system/monitoring-settings')
+def save_monitoring(body: MonitoringSettings, request: Request, admin=Depends(require('approve',mfa=True)), db=Depends(db_session)):
+    from app.models import SystemSetting
+    from app.services.settings import apply_monitoring
+    row=db.get(SystemSetting,'monitoring')
+    if not row:row=SystemSetting(key='monitoring',value={});db.add(row)
+    row.value=body.model_dump(exclude={'reason'});db.flush();apply_monitoring(db,request.app.state.settings)
+    audit(db,admin.id,'monitoring.settings_changed','monitoring',values=row.value,reason=body.reason)
+    return {'ok':True,'worker_refresh':'next_monitoring_tick'}

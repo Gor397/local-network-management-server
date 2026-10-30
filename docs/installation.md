@@ -47,11 +47,13 @@ Review these values before startup:
 | `TRUSTED_HOSTS` | `192.168.88.10,management.local,localhost,127.0.0.1` | Accepted HTTP hostnames |
 | `ROUTER_ALLOWED_NETWORKS` | `192.168.88.0/24` | Permitted management destinations |
 | `SSH_ALLOWED_NETWORKS` | `192.168.88.0/24` | Permitted endpoint SSH destinations |
-| `ROUTER_WRITES_ENABLED` | `false` | Global write gate; keep false initially |
+| `OPERATION_MODE` | `read_only` | Server-enforced safety mode: `read_only`, `dry_run`, `controlled_test`, `production` |
+| `TEST_ROUTERS` / `TEST_DEVICES` | empty | Only targets in `controlled_test` mode (IDs, names/hostnames, router management IPs) |
+| `ROUTER_WRITES_ENABLED` | `false` | Legacy global write gate; used only when `OPERATION_MODE` is unset |
 | `DEPLOYMENT_ENABLED` | `false` | Keep false until signed package tests pass |
 | `SSH_ENABLED` | `false` | Keep false until host keys and management paths are ready |
 
-Bootstrap uses broad private-management subnet defaults when optional network settings are absent. Narrow them to your actual LAN. Do not print the complete `.env` in tickets or logs.
+Bootstrap writes `OPERATION_MODE=read_only` and sets the router/SSH allowed networks to the `/24` around `LAN_IP`. For other or multiple subnets, run it as `sudo ROUTER_NETWORKS=10.20.0.0/24,10.21.0.0/24 scripts/bootstrap.sh LAN_IP`. An `.env` created earlier keeps its values. Without the setting, the code falls back to all private ranges, so narrow it to the actual management subnets. Compose publishes HTTPS on `127.0.0.1` when `LAN_BIND_IP` is missing. Do not print the complete `.env` in tickets or logs.
 
 ## 3. Trust and configure TLS
 
@@ -98,7 +100,7 @@ Only HTTPS is published to the LAN. Restrict that port to authorized administrat
 docker compose exec backend python -m app.cli create-admin --username admin
 ```
 
-Enter a unique password of at least 16 characters at the interactive prompts. No default password exists. Open `https://192.168.88.10`, sign in, then configure TOTP in Settings. Keep the local-console recovery procedure available before enabling enforcement.
+Enter a unique password of at least 16 characters at the interactive prompts. No default password exists. Open `https://192.168.88.10`, sign in with username and password. Optional TOTP remains available in Settings; it is not required by default. See [multilingual MFA instructions](authentication.md). Keep the local-console recovery procedure available before enabling enforcement.
 
 Create a baseline policy, register a test device and assign the policy. Register routers with read-only credentials and verify discovery before allowing writes.
 
@@ -115,6 +117,22 @@ Create a baseline policy, register a test device and assign the policy. Register
 Changing the Compose project name changes named-volume identity. Use a fixed project name for production. Do not run `down -v`, remove `data`, or rotate `ENCRYPTION_KEY` during an ordinary update.
 
 Container limits are configurable through `.env`; see [monitoring](monitoring.md). Use [backup and recovery](recovery.md) before updates.
+
+## Make shortcuts
+
+Run these in the server checkout. They wrap the commands in this guide; `make help` lists every target.
+
+| Task | Command |
+|---|---|
+| First install | `make prod-bootstrap LAN_IP=192.168.88.10 [ROUTER_NETWORKS=192.168.88.0/24]` |
+| Build / start / status / logs | `make prod-build`, `make prod-up`, `make prod-status`, `make prod-logs SERVICE=backend` |
+| First administrator | `make prod-admin USERNAME=admin` |
+| Show safety mode and network scope | `make prod-mode` (prints no secrets) |
+| Apply an `.env` change such as `OPERATION_MODE` | `make prod-restart` |
+| Stop (data kept) | `make prod-down` |
+| Backup / update | `make prod-backup BACKUP=/backups/suro.age RECIPIENT=age1...`, `make prod-update TAG=0.2.0 BACKUP=... RECIPIENT=...` |
+| Restore / rollback (replace all data) | `make prod-restore BACKUP=... IDENTITY=... CONFIRM=replace-data`, `make prod-rollback ...` |
+| Air-gapped transfer | `make offline-export OUT=/tmp/lantern-offline` (connected host), then `make offline-import BUNDLE=...` and `make prod-up-offline` (offline server) |
 
 ## Offline production installation
 

@@ -30,6 +30,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '10.0.x'}
       - run: dotnet build agent/src/NetworkPolicyClient.csproj -c Release
+      - run: dotnet build agent/ui/Suro.Identity.UI.csproj -c Release
       - run: dotnet run --project agent/tests/AgentContractTests.csproj -c Release
   windows-source-validation:
     runs-on: windows-latest
@@ -38,6 +39,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '10.0.x'}
       - run: dotnet build agent/src/NetworkPolicyClient.csproj -c Release
+      - run: dotnet build agent/ui/Suro.Identity.UI.csproj -c Release
       - shell: pwsh
         run: |
           $failed = $false

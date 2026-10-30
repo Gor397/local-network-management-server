@@ -94,5 +94,10 @@ def verify_operations(operations, after):
                 return False
             # Reject must precede any potentially matching manual rules.
             if op["path"].endswith("access-list") and rows[0].get(".id") != match.get(".id"):
-                return False
+                if op.get('priority_mode')!='before_conflicts':return False
+                for earlier in rows[:rows.index(match)]:
+                    if earlier.get('disabled')=='true':continue
+                    same_mac=earlier.get('mac-address','').upper() in ('','00:00:00:00:00:00',expected.get('mac-address','').upper()) or earlier.get('mac-address-mask') not in (None,'FF:FF:FF:FF:FF:FF')
+                    same_interface=earlier.get('interface','all') in ('','all','any',expected.get('interface'))
+                    if same_mac and same_interface:return False
     return True

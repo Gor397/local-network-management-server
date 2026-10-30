@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "articles": {
+    "getting-started": {
+      "title": "Getting started with Suro",
+      "body": "Begin with read-only discovery and one test Windows computer. Register the device, assign a policy and approve its certificate request. A pending or unknown result needs investigation; it does not mean a change succeeded."
+    },
+    "devices": {
+      "title": "Registering computers",
+      "body": "A managed computer needs its own certificate and Windows Service. Its Wi-Fi MAC helps map network connections, but can be copied by another device. Existing computers begin in Audit Mode so their users, files and rules are preserved."
+    },
+    "owners": {
+      "title": "Owner and signed-in user",
+      "body": "The assigned owner is an administrator's record. The current user is the Windows account most recently observed. A name or optional rank entered during onboarding is user-reported until reviewed; it never automatically reassigns ownership. Collect only information needed to identify the device's responsible person."
+    },
+    "device-groups": {
+      "title": "Windows device groups",
+      "body": "A computer may belong to several groups. Use a group to assign policies, request checks or target an existing package deployment without copying its files. Conflicting group settings require an explicit resolution; review the effective policy before granting access."
+    },
+    "policies": {
+      "title": "Policies and effective settings",
+      "body": "A policy describes required configuration, not a command to run. Suro combines global, class, group and approved device settings into a signed version. Publishing invalidates old compliance evidence. Preview the changes and resolve group conflicts before deployment."
+    },
+    "compliance": {
+      "title": "Compliance score and quarantine",
+      "body": "The percentage is a summary. Every mandatory check must pass with recent evidence before a device is compliant. One critical failure can require restriction even at 95%. Unknown checks are never passes, and a router rule readback alone does not prove complete network isolation."
+    },
+    "firewall": {
+      "title": "Inbound and outbound firewall rules",
+      "body": "Inbound traffic starts toward this computer; outbound traffic starts from it. For example, the agent's HTTPS request to Suro is outbound. A default deny needs explicit management, DHCP and approved internal allowances. Incorrect changes can disconnect the agent; preview conflicts and retain a recovery path."
+    },
+    "dhcp": {
+      "title": "DHCP reservations and IP addresses",
+      "body": "A reservation tells the DHCP server to offer the same address to an approved MAC. A manually static address is configured on the computer and may be invisible while it is offline. Reserve only an exclusively managed range outside dynamic pools and known static addresses. A reservation is not permission to join Wi-Fi."
+    },
+    "ap-inventory": {
+      "title": "Adding and inspecting access points",
+      "body": "Register the management IP and a dedicated verified-TLS account, then discover read-only. Suro probes supported menus instead of assuming all APs are alike. Missing temperature, voltage or wireless features mean unavailable, not zero. Existing manually configured credentials and entries are preserved."
+    },
+    "ap-groups": {
+      "title": "Access point groups and safe batches",
+      "body": "AP groups organize physical network devices separately from Windows groups. Preview compatibility and impact for every target. Bulk operations run in bounded batches, one device by default, and stop on failure. Keep another verified management path or explicitly confirmed out-of-band recovery."
+    },
+    "reboot": {
+      "title": "Rebooting an access point",
+      "body": "Connected users will temporarily lose Wi-Fi. Save or back up configuration first; outstanding changes may be lost. Suro requires an explicit preview/approval and verifies a new uptime after the API returns. An unreachable AP cannot be remotely rebooted through that same unavailable API."
+    },
+    "wireless": {
+      "title": "Wireless settings and interfaces",
+      "body": "Disabling a radio or changing its SSID can disconnect all associated clients. Edit only fields supported by the detected stack and review dependencies. Existing unrelated configuration stays intact. Keep the management path on a different connection before applying a disruptive change."
+    },
+    "backups": {
+      "title": "Backups and configuration restoration",
+      "body": "A configuration snapshot records the baseline for review; it is not necessarily a complete RouterOS binary backup. Restoration must match the target device and version and may reboot or disconnect it. Review the exact owned-field changes, existing dependencies and out-of-band recovery before approving."
+    },
+    "updates": {
+      "title": "Offline RouterOS updates",
+      "body": "Use an explicitly approved MikroTik package matching the device architecture and supported upgrade path. Review version and backup requirements before reboot. Do not download or install an arbitrary URL from a dashboard field. Keep a recovery console for package or boot failures."
+    },
+    "deployments": {
+      "title": "Remote offline software deployment",
+      "body": "Upload a package once, verify its hash and publisher, approve it, then select devices or groups. Start with test devices. Concurrency limits prevent all computers from downloading at once. An installer exit code alone is not verified installation, and running installers may not be safely cancellable."
+    },
+    "offline": {
+      "title": "Troubleshooting missing devices",
+      "body": "A missing heartbeat can mean sleep, broken Wi-Fi, a stopped service or an unavailable management server. Compare AP observations, recent WLAN events and other affected devices. Buffered client diagnostics arrive after reconnection. Do not infer that a device is powered off from silence alone."
+    },
+    "ssh": {
+      "title": "Secure SSH troubleshooting",
+      "body": "SSH gives an authorized administrator an interactive privileged terminal. The host key must be verified, and access is restricted to management infrastructure. Terminal input/output is recorded but is not a complete audit of every host action. Opening a terminal never silently removes quarantine."
+    },
+    "incidents": {
+      "title": "Facts, incidents and probable causes",
+      "body": "Suro correlates network and client observations in time windows. One AP failure can explain many missing endpoints, so one primary incident links affected devices. Facts are measurements; a probable cause is an inference with a confidence level. Review evidence before following a recommendation."
+    },
+    "recovery": {
+      "title": "Automatic recovery safeguards",
+      "body": "Automatic reboot is disabled by default. Enable it only with corroborating persistent evidence, an approved maintenance window and an independent management path. Cooldowns and attempt limits prevent loops. Upstream failures, protected gateways and unreachable APIs prevent automatic reboot and require investigation. Optionally enable approved-radio recovery: after several sustained API observations, Suro can enable a radio only if its approved desired state explicitly requires enabled operation. This correction is preferred to a full reboot and does not change its SSID or credentials. Unknown or intentionally disabled radios remain untouched. Conditions, maintenance authorization and shared-failure guards are checked again before execution."
+    },
+    "topology": {
+      "title": "Confirmed and inferred topology",
+      "body": "Solid observed links come from recent network evidence or explicit administrator configuration. Dashed inferred links are hypotheses and unknown links are marked. A missing discovery record is not proof of disconnection. Use filters to inspect one group, subnet or health state."
+    },
+    "mfa": {
+      "title": "Optional OTP / MFA",
+      "body": "Username and password are sufficient by default. OTP adds a changing code from an authenticator as a second factor. An administrator can enable login/action requirements through server settings after enrolling authenticators. Keep local-console recovery available; never share the secret enrollment URI."
+    },
+    "exceptions": {
+      "title": "Approved policy exceptions",
+      "body": "An exception affects only the named device and checks, with an author, reason and optional expiry. It does not exempt every security control or prove compliance. Use a short expiry for maintenance. Critical identity and network verification gates cannot be waived through this form."
+    },
+    "storage": {
+      "title": "Storage and protected files",
+      "body": "A missing D: volume creates an assessment, not an automatic resize or format. Hidden EFI, recovery and encryption partitions are essential. Moving personal data requires a verified backup and a separately approved procedure with file and permission verification. Hiding C: is only an Explorer convenience, not a security boundary."
+    },
+    "identity": {
+      "title": "Enrollment certificate approval",
+      "body": "The short-lived token is tied to a registered device. Verify the pending certificate-request fingerprint before approval. The device keeps its private key; the server stores the certificate. Revoking the identity stops authenticated reporting but does not itself remove an existing Wi-Fi permission."
+    },
+    "reason": {
+      "title": "Reasons, approval and audit history",
+      "body": "Record a concrete reason and change reference so another administrator can understand the action later. Approval authorizes the displayed targets and changes, not unrelated commands. History distinguishes a queued request, applied configuration and independently verified result."
+    },
+    "schedule": {
+      "title": "Maintenance windows and scheduling",
+      "body": "Choose a start and end time when disruption is approved. Suro will not start a new disruptive target after the window closes. Sequential batches may finish later than expected; inspect each result before retrying. Times are transmitted with their timezone and stored in UTC."
+    },
+    "metrics": {
+      "title": "Health metrics and unavailable sensors",
+      "body": "CPU, memory, uptime and traffic are observations at a particular time. A missing sensor is shown as unavailable. Sustained abnormal values are more meaningful than one spike. Review sample time, nearby devices and workload before deciding that hardware has failed."
+    },
+    "network-access": {
+      "title": "Network restrictions and developer access",
+      "body": "Windows firewall and gateway restrictions complement network segmentation. A shared unrestricted Ethernet/Wi-Fi segment may allow direct client traffic around gateway rules. Developer MAC-only entries remain unmanaged and vulnerable to spoofing. Do not label network isolation verified without actual topology and traffic evidence."
+    },
+    "secrets": {
+      "title": "Passwords, certificates and private keys",
+      "body": "Use dedicated management credentials with only the required privileges. The server encrypts router and SSH secrets; public keys and certificate fingerprints are not private keys. Never paste secrets into an incident, command line or exported inventory. Replacing a host key requires independent verification."
+    },
+    "safety-modes": {
+      "title": "Safety modes",
+      "body": "Suro runs in one of four modes that the server administrator sets in the .env file (OPERATION_MODE). Read-only: inventory and monitoring only; no router or computer is changed and agents only audit. Dry run: a change preview can be applied to see exactly what would be sent, but nothing is sent. Controlled test: changes are allowed only to routers and computers listed in TEST_ROUTERS and TEST_DEVICES. Production: changes go to routers whose write switch is enabled. The server enforces the mode for every path, including background jobs and automatic recovery. To change it, edit the server configuration and restart Suro."
+    },
+    "network-inventory": {
+      "title": "Network inventory",
+      "body": "This list combines what your MikroTik routers already reported during discovery: DHCP leases, ARP entries and Wi-Fi registrations. Suro does not scan or contact the devices to build it. A device that is asleep, uses a static address outside DHCP or sits behind another router may be missing. Random MAC means the address is locally administered, which is typical of phones that randomize their MAC. Same IP means two hardware addresses claimed one IP. The Suro client column shows only what the server can prove: not registered, registered without a certificate, enrolled, or agent reporting. A category or label is a note for administrators; it never grants or removes network access."
+    }
+  }
+}

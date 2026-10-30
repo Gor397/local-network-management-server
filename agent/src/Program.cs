@@ -21,4 +21,5 @@ builder.Services.AddSingleton(config);
 builder.Services.AddSingleton(new LocalState(root));
 builder.Services.AddSingleton<AgentTransport>();
 builder.Services.AddHostedService<PolicyWorker>();
+builder.Services.AddHostedService<Lantern.Enrollment.IdentityPipeService>();
 await builder.Build().RunAsync();

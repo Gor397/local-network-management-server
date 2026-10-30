@@ -20,3 +20,5 @@ agent/installer/publish/
 agent/installer/PublishedFiles.wxs
 artifacts/
 .env.before-update
+.ruff_cache/
+.claude/settings.local.json

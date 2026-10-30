@@ -6,6 +6,36 @@ namespace Lantern.Service;
 
 public sealed class MaintenanceRunner(AgentConfiguration config, LocalState state, AgentTransport transport)
 {
+    int verificationCursor;
+    public async Task VerifyPending(CancellationToken token)
+    {
+        foreach(string file in Directory.EnumerateFiles(state.Root,"maintenance-*.result.json").Where(file=>!File.Exists(file+".reported")).Take(20))
+        {
+            if(File.Exists(file+".reported"))continue;
+            string id=Path.GetFileName(file)[12..^12];
+            if(!Guid.TryParse(id,out _))continue;
+            using var result=JsonDocument.Parse(await File.ReadAllTextAsync(file,token));
+            using var sent=await transport.Send(HttpMethod.Post,$"api/v1/agent/maintenance/{id}/result",result.RootElement,cancellationToken:token);
+            sent.EnsureSuccessStatusCode();await File.WriteAllTextAsync(file+".reported","acknowledged",token);
+        }
+        using var response=await transport.Send(HttpMethod.Get,"api/v1/agent/maintenance/pending-verification",cancellationToken:token);
+        response.EnsureSuccessStatusCode();using var parsed=JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+        var envelopes=parsed.RootElement.GetProperty("jobs").EnumerateArray().Select(x=>x.Clone()).ToArray();
+        for(int index=0;index<Math.Min(2,envelopes.Length);index++)
+        {
+            var envelope=envelopes[(verificationCursor+index)%envelopes.Length];
+            using var verified=SignedDocument.Verify(envelope.GetRawText(),config.SigningPublicKey);var ticket=verified.RootElement;
+            if(ticket.GetProperty("purpose").GetString()!="verify_maintenance"||ticket.GetProperty("device_id").GetString()!=config.DeviceId||SignedDocument.UtcInstant(ticket.GetProperty("expires_at").GetString()!)<DateTime.UtcNow)throw new InvalidDataException("Invalid maintenance verification ticket.");
+            string id=ticket.GetProperty("job_id").GetString()!;if(!Guid.TryParse(id,out _))throw new InvalidDataException("Invalid maintenance ID.");
+            string file=$"maintenance-{id}.verify.json";await state.Save(file,ticket.GetRawText());
+            var result=await PowerShell.Run("Service/Verify-Maintenance.ps1",["-ManifestFile",state.PathFor(file)],token);
+            if(result.ExitCode!=0){await state.Log("maintenance.verification_unavailable",new{id,result.ExitCode});continue;}
+            using var evidence=JsonDocument.Parse(result.Output);if(evidence.RootElement.GetProperty("state").GetString()=="WAITING")continue;
+            using var sent=await transport.Send(HttpMethod.Post,$"api/v1/agent/maintenance/{id}/result",evidence.RootElement,cancellationToken:token);sent.EnsureSuccessStatusCode();
+        }
+        if(envelopes.Length>0)verificationCursor=(verificationCursor+2)%envelopes.Length;
+    }
+
     public async Task RunNext(CancellationToken token)
     {
         using var next = await transport.Send(HttpMethod.Get, "api/v1/agent/maintenance/next", cancellationToken: token);
@@ -14,7 +44,7 @@ public sealed class MaintenanceRunner(AgentConfiguration config, LocalState stat
         if (response.RootElement.GetProperty("job").ValueKind == JsonValueKind.Null) return;
         using var manifest = SignedDocument.Verify(response.RootElement.GetProperty("job").GetRawText(), config.SigningPublicKey);
         var m = manifest.RootElement;
-        if (m.GetProperty("device_id").GetString() != config.DeviceId || m.GetProperty("schema_version").GetInt32() != 1 || DateTime.Parse(m.GetProperty("expires_at").GetString()!).ToUniversalTime() < DateTime.UtcNow)
+        if (m.GetProperty("device_id").GetString() != config.DeviceId || m.GetProperty("schema_version").GetInt32() != 1 || SignedDocument.UtcInstant(m.GetProperty("expires_at").GetString()!) < DateTime.UtcNow)
             throw new InvalidDataException("Maintenance authorization expired or mismatched.");
         string id = m.GetProperty("job_id").GetString()!;
         if (!Guid.TryParse(id, out _)) throw new InvalidDataException("Invalid maintenance identifier.");
@@ -40,8 +70,11 @@ public sealed class MaintenanceRunner(AgentConfiguration config, LocalState stat
                 result = parsed.RootElement.Clone();
             }
         }
+        string resultFile=$"maintenance-{id}.result.json";
+        await state.Save(resultFile,JsonSerializer.Serialize(result,Json.Options));
         using var reported = await transport.Send(HttpMethod.Post, $"api/v1/agent/maintenance/{id}/result", result, cancellationToken: token);
         reported.EnsureSuccessStatusCode();
+        await File.WriteAllTextAsync(state.PathFor(resultFile)+".reported","acknowledged",token);
         await state.Log("maintenance.result", new { id });
     }
 }

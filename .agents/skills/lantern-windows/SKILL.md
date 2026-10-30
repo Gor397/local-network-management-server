@@ -1,11 +1,13 @@
 ---
 name: lantern-windows
-description: Implement or diagnose Lantern's .NET 10 Windows Service, enrollment, fixed PowerShell operations, offline installers, or signed MSI/update workflow.
+description: Implement or diagnose Suro's .NET 10 Windows Service, enrollment, fixed PowerShell operations, offline installers, or signed MSI/update workflow.
 ---
 
 Read the Windows rows of [the code map](../../../docs/developers/code-map.md) and the relevant [privileged-operation section](../../../docs/developers/privileged-operations.md). Work from the repository root.
 
 Use `Program.cs` and `Service/PolicyWorker.cs` under `agent/src/` to trace service behavior. The paths for enrollment, request signing, inspection, remediation, maintenance and deployments are separate. Ordinary policy must never gain a script/command payload.
+
+Identity onboarding is `agent/ui/` plus `Enrollment/IdentityPipeService.cs`, not a second agent or Session 0 dialog. Authenticate the pipe server against SCM PID; derive client SID only from the impersonated local token after reading. Preserve protected ProgramData state and legacy machine identity. Native WLAN observations use `Monitoring/DiagnosticsBuffer.cs`; keep the offline buffer bounded. See the identity sequence in `docs/developers/suro-expansion.md` when changing IPC.
 
 Cross-language contracts are fragile: verify exact decoded payload bytes before JSON parsing; request signatures bind method, path/query, Unix seconds, nonce and exact body hash. Keep Python and C# schema/operation allowlists synchronized. An authorized rollback is a new version/revision, not permission to accept an old signed envelope.
 

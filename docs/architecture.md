@@ -2,7 +2,7 @@
 
 The control plane is a local modular monolith: FastAPI, PostgreSQL, a bounded database job worker, React/TypeScript, and an HTTPS reverse proxy. A separate .NET 10 Windows Service reconciles signed declarative policies. RouterOS REST uses verified TLS. No cloud services are needed at runtime.
 
-Trust boundaries: browser → authenticated API; agent → certificate proof-of-possession API; backend → explicitly registered router; deployment repository → approved signed manifest → privileged installer; SSH broker → pinned endpoint host key. Policies cannot contain commands. Uploaded executable deployment and interactive SSH are separate, privileged, MFA-gated capabilities.
+Trust boundaries: browser → authenticated API; agent → certificate proof-of-possession API; backend → explicitly registered router; deployment repository → approved signed manifest → privileged installer; SSH broker → pinned endpoint host key. Policies cannot contain commands. Uploaded executable deployment and interactive SSH are separate privileged capabilities; recent MFA is required only when explicitly enabled. Username/password is the default human login.
 
 Device reports are claims, not independent proof. The compliance evaluator owns the check catalog; missing, stale, wrong-version, or wrong-source evidence is UNKNOWN. Network controls require evidence collected by the router connector. A new policy invalidates prior compliance. Developer devices always have UNVERIFIED endpoint state.
 

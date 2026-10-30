@@ -1,0 +1,18 @@
+export const extraRoutes = [
+  "connected-clients",
+  "network-inventory",
+  "network-overview",
+  "access-points",
+  "ap-groups",
+  "device-groups",
+  "owners",
+  "topology",
+  "diagnostics",
+  "incidents",
+  "maintenance-jobs",
+  "system-health",
+  "recovery-settings",
+  "administrators",
+  "monitoring-settings",
+  "policy-layers",
+];

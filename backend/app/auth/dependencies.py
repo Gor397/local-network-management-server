@@ -52,11 +52,11 @@ PERMISSIONS = {
 
 
 def require(permission, mfa=False):
-    def dependency(identity=Depends(admin_session)):
+    def dependency(request: Request, identity=Depends(admin_session)):
         admin, session = identity
         if permission not in PERMISSIONS.get(admin.role, set()):
             raise HTTPException(403, "auth.forbidden")
-        if mfa and (not session.mfa_at or session.mfa_at < utcnow() - timedelta(minutes=10)):
+        if mfa and request.app.state.settings.mfa_required and (not session.mfa_at or session.mfa_at < utcnow() - timedelta(minutes=10)):
             raise HTTPException(403, "auth.mfa_required")
         return admin
     return dependency

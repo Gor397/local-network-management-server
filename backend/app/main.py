@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.config import Settings
 from app.db import database
 from app.security.crypto import Vault
-from app.api import auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance
+from app.api import auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory
 
 log = logging.getLogger("lantern")
 
@@ -19,9 +19,11 @@ log = logging.getLogger("lantern")
 def create_app(settings=None):
     settings = settings or Settings()
     engine, sessions = database(settings.database_url)
-    app = FastAPI(title="Lantern LAN Management", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app = FastAPI(title="Suro LAN Management", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.state.settings, app.state.engine, app.state.sessions = settings, engine, sessions
     app.state.vault = Vault(settings)
+    from app.services.transfers import TransferBudget
+    app.state.transfers=TransferBudget()
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts.split(","))
     buckets = OrderedDict()
 
@@ -74,11 +76,21 @@ def create_app(settings=None):
         # Never echo input (tokens, keys, passwords) in validation responses.
         return JSONResponse({"error": {"code": "request.validation", "fields": [".".join(str(x) for x in e["loc"]) for e in exc.errors()]}}, 422)
 
+    from pydantic import ValidationError
+    @app.exception_handler(ValidationError)
+    async def typed_operation_error(request, exc):
+        return JSONResponse({"error": {"code": "request.validation", "fields": [".".join(str(x) for x in e["loc"]) for e in exc.errors()]}}, 422)
+
     @app.exception_handler(IntegrityError)
     async def conflict(request, exc):
         return JSONResponse({"error": {"code": "request.conflict"}}, 409)
 
-    for module in (auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance):
+    from app.policies.resolver import PolicyConflict
+    @app.exception_handler(PolicyConflict)
+    async def policy_conflict(request, exc):
+        return JSONResponse({"error": {"code": "policy.group_conflict", "control": str(exc).split(":", 1)[-1]}}, 409)
+
+    for module in (auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory):
         app.include_router(module.router, prefix="/api/v1")
 
     @app.get("/healthz")

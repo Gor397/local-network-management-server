@@ -19,7 +19,13 @@ All paths below are relative to the repository root. Start with the smallest row
 | Publication and assignment | `backend/app/api/policies.py` | Immutable versions, optimistic concurrency, invalidation |
 | Compliance decisions | `backend/app/compliance/engine.py` | Freshness, source/version checks, mandatory gates, score |
 | Agent protocol | `backend/app/api/agent.py` | Enrollment approval, ETags, heartbeat, evidence intake |
-| Router transport | `backend/app/mikrotik/connector.py` | HTTPS validation, optional menu probing, redaction, stable hash |
+| Owners and identities | `backend/app/api/identities.py` | User-reported SID claims, explicit owner approval, assignment history, safe CSV export |
+| Device groups | `backend/app/api/groups.py` | Membership, recompilation, per-target policy/maintenance rollout |
+| Infrastructure operations | `backend/app/api/infrastructure.py`, `services/infrastructure.py` | AP groups, encrypted backups, baseline previews, durable batches and reboot verification |
+| Monitoring and correlation | `backend/app/services/{telemetry,diagnostics,recovery,settings}.py`, `api/diagnostics.py` | Bounded polling, facts versus hypotheses, deduplication, optional guarded recovery |
+| Router transport | `backend/app/mikrotik/{connector,native}.py` | HTTPS/API-SSL validation, optional menu probing, redaction, stable hash |
+| Safety modes | `backend/app/services/safety.py` | `OPERATION_MODE`, `GuardedRouter` transport wrapper, endpoint/agent-mode gating |
+| Passive inventory | `backend/app/services/inventory.py`, `api/inventory.py` | Merges stored leases/ARP/Wi-Fi registrations; labels are descriptive only |
 | Router planning | `backend/app/mikrotik/planner.py` | Allocation, lease previews, wireless rejection and readback |
 | Router orchestration | `backend/app/services/network.py` | Durable claim, backup, ownership check, apply, verification |
 | Router-facing admin API | `backend/app/api/mikrotik.py` | Register/discover, subnets, developer MAC workflow, approvals |
@@ -60,6 +66,8 @@ Program.cs
 | Firewall maintenance | `Firewall/Apply-Allowlist.ps1` | Backup, conflict check, management connectivity and recovery task |
 | SSH enablement | `Network/Enable-OpenSSH.ps1` | Requires installed offline capability and reviews existing rules |
 | User language | `Deployment/Configure-Locale.ps1`, `Apply-UserLocale.ps1` | User preferences run as the user at logon, not as SYSTEM |
+| User identity IPC | `Enrollment/IdentityPipeService.cs`, `agent/ui/` | Separate WinForms process; authenticated local pipe, real token SID, protected retry outbox |
+| Bounded Wi-Fi observations | `Monitoring/DiagnosticsBuffer.cs` | Native WLAN API, event IDs, bounded disk cache and signed upload |
 | MSI | `agent/installer/` | WiX, signing, ACLs, SCM permissions and enrollment wrapper |
 
 Paths in this table are relative to `agent/src/` unless explicitly stated otherwise.
@@ -68,6 +76,9 @@ Paths in this table are relative to `agent/src/` unless explicitly stated otherw
 
 | File | Responsibility |
 |---|---|
+| `frontend/src/pages/SuroPages.tsx` | Infrastructure/groups/owners/incidents/topology/monitoring pages; loaded on demand |
+| `frontend/src/help/v1/{en,hy,ru}.json` | Versioned native contextual articles; use stable IDs rather than copying prose |
+| `frontend/src/components/{Help,Navigation}.tsx` | Searchable help, accessible question-mark dialogs and grouped navigation |
 | `frontend/src/App.tsx` | Current page components, forms, modals, auth shell and navigation |
 | `frontend/src/api/client.ts` | Same-origin requests, CSRF and normalized API errors |
 | `frontend/src/hooks/useData.ts` | Request lifecycle and revision-triggered refresh |
@@ -78,7 +89,7 @@ Paths in this table are relative to `agent/src/` unless explicitly stated otherw
 
 Navigation uses `location.hash`, for example `#devices/DEVICE_UUID`; there is no React Router dependency. SSH and incremental SHA-256 code are loaded on demand. SSE sends small revision markers, then pages fetch the records they need.
 
-Page functions currently live together in `App.tsx`; splitting a substantial page into `src/pages/` is appropriate as it grows. Avoid inventing an additional frontend framework.
+Existing page functions remain in `App.tsx`; new feature pages are split into `src/pages/` and lazy loaded. Avoid inventing an additional frontend framework.
 
 ## Database changes
 

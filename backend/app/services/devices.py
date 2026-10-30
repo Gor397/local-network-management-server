@@ -46,7 +46,10 @@ def serialize_device(device, settings):
             "network_state": device.network_state, "agent_version": device.agent_version,
             "os_version": device.os_version, "last_heartbeat": device.last_heartbeat,
             "last_verified": device.last_verified, "policy_version_id": device.policy_version_id,
-            "enabled": device.enabled, "revision": device.revision, "network": device.network_evidence}
+            "enabled": device.enabled, "revision": device.revision, "network": device.network_evidence,
+            "owner_name": device.owner_name, "owner_rank": device.owner_rank, "owner_verified": device.owner_verified,
+            "owner_account": device.owner_account, "identity_status": device.identity_status,
+            "network_profile_id":device.network_profile_id,"last_user_account": device.last_user_account, "last_user_sid": device.last_user_sid, "last_user_seen": device.last_user_seen}
 
 
 def reassess(db, device, claims=None):

@@ -53,3 +53,11 @@ A single local smoke run on 2026-10-29 observed approximately 92 MiB backend, 65
 Nginx and application rate limits are distinct. The current application does not trust forwarded client IPs, so requests arriving through the proxy share the proxy's application-level bucket. Capacity and brute-force behavior need load testing before a large fleet; do not claim support for an arbitrary number of devices from the default limits alone.
 
 Keep security audit history outside ephemeral container logs. The current database audit table is operational history, not protection against a compromised database administrator.
+
+## Suro infrastructure telemetry
+
+The worker now runs bounded asynchronous network polling separately from the infrastructure-operation task. Defaults are health every 60 seconds, full inventory every 900 seconds, concurrency two, and seven-day network/client telemetry retention. Low Resource Mode uses a 60-second worker cadence and 120-second agent policy interval. Expensive data is not included in every health poll. Unavailable routers receive a slower retry cadence. Settings → Monitoring Settings persists approved budgets in PostgreSQL; the worker reads them each cycle.
+
+Newly seen log entries are deduplicated with a bounded cursor. Client diagnostics are bounded on disk and uploaded after reconnection. The incident center merges common failures and keeps facts separate from hypotheses. Health, incidents and operation outcomes contribute small SSE revision markers; SSE does not hold a database connection between polls or stream complete telemetry.
+
+See [Suro operations](suro-operations.md) for incident maintenance, recovery gates and topology interpretation. Automatic recovery is disabled globally/per AP and supports corroborated sustained critical CPU/RAM and separately approved restoration of an unexpectedly disabled radio. The radio must explicitly be enabled in approved desired state; unknown and intentionally disabled interfaces are never automatically changed. It is not a universal fault-repair engine. Measure actual memory, storage and latency under your deployment workload; the idle lab sample in [progress](progress.md) is not a sizing guarantee.

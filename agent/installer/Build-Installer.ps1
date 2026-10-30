@@ -1,10 +1,12 @@
 #Requires -Version 7
-param([string]$SigningCertificateThumbprint, [string]$TimestampUrl)
+param([string]$SigningCertificateThumbprint, [string]$TimestampUrl, [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version='0.1.0')
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $publish = Join-Path $root 'publish'
-dotnet publish "$root\..\src\NetworkPolicyClient.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o $publish
+dotnet publish "$root\..\src\NetworkPolicyClient.csproj" -c Release -p:Version=$Version -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o $publish
 if ($LASTEXITCODE -ne 0) { throw 'Agent publish failed' }
+dotnet publish "$root\..\ui\Suro.Identity.UI.csproj" -c Release -p:Version=$Version -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o "$publish\IdentityUI"
+if ($LASTEXITCODE -ne 0) { throw 'Identity UI publish failed' }
 if (-not $SigningCertificateThumbprint) { throw 'Production installers require a trusted code-signing certificate in the build account certificate store' }
 $cert = Get-Item "Cert:\CurrentUser\My\$SigningCertificateThumbprint"
 $signingOptions = @{ Certificate=$cert; HashAlgorithm='SHA256' }
@@ -35,7 +37,7 @@ function AddFiles($path, $parent) {
 }
 AddFiles $publish $directoryRef
 $doc.Save((Join-Path $root 'PublishedFiles.wxs'))
-dotnet build "$root\Agent.wixproj" -c Release
+dotnet build "$root\Agent.wixproj" -c Release -p:AgentVersion=$Version
 if ($LASTEXITCODE -ne 0) { throw 'MSI build failed' }
 $msi = Get-ChildItem "$root\bin" -Recurse -Filter '*.msi' | Select-Object -First 1
 $signed = Set-AuthenticodeSignature -FilePath $msi.FullName @signingOptions

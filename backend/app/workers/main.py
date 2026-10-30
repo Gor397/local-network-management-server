@@ -8,7 +8,7 @@ from sqlalchemy import select, delete
 from app.config import Settings
 from app.db import database, utcnow
 from app.models import (Device, PolicyVersion, Router, NetworkPlan, Alert, HealthReport, RequestNonce,
-                        AdminSession, ComplianceReport, ComplianceCheck, DeploymentTask, PolicyException)
+                        AdminSession, ComplianceReport, ComplianceCheck, DeploymentTask, PolicyException, RouterTelemetry, ClientObservation, BackgroundJob, NetworkBatch, OperationTarget)
 from app.security.crypto import Vault
 from app.services.network import discover, execute_plan
 from app.services.devices import notify, reassess
@@ -26,15 +26,31 @@ def expire_evidence(db, settings, warm=True):
         missing = device.last_heartbeat and device.last_heartbeat < now - timedelta(seconds=deadline)
         if missing:
             device.state, device.compliance_score, device.last_verified = "UNVERIFIED", 0, None
-            notify(db, "agent.heartbeat_missing", device.id, connected=device.network_evidence.get("connected", "UNKNOWN"))
+            upstream = db.get(Router, device.network_evidence.get("router_id")) if device.network_evidence.get("router_id") else None
+            if not upstream or upstream.status != "UNAVAILABLE":
+                notify(db, "agent.heartbeat_missing", device.id, connected=device.network_evidence.get("connected", "UNKNOWN"))
         elif policy and device.state not in ("PENDING_ENROLLMENT",):
             reassess(db, device)
-    for task in db.scalars(select(DeploymentTask).where(DeploymentTask.state == "RUNNING", DeploymentTask.lease_until < now)):
+    for task in db.scalars(select(DeploymentTask).where(DeploymentTask.state.in_(["RUNNING","AWAITING_RESTART"]), DeploymentTask.lease_until < now)):
         task.state = "UNKNOWN"
         notify(db, "deployment.lease_expired", task.device_id, task_id=task.id)
     db.execute(delete(HealthReport).where(HealthReport.created_at < now - timedelta(days=settings.health_retention_days)))
     db.execute(delete(RequestNonce).where(RequestNonce.expires_at < now))
     db.execute(delete(AdminSession).where(AdminSession.expires_at < now))
+    db.execute(delete(RouterTelemetry).where(RouterTelemetry.created_at < now - timedelta(days=settings.telemetry_retention_days)))
+    db.execute(delete(ClientObservation).where(ClientObservation.created_at < now - timedelta(days=settings.telemetry_retention_days)))
+    from app.services.repository import clean_uploads
+    clean_uploads(db,settings,now)
+    for task in db.scalars(select(DeploymentTask).where(DeploymentTask.state.in_(['REBOOT_REQUIRED','AWAITING_RESTART']))):
+        recorded=task.result.get('recorded_at')
+        if recorded and recorded<(now-timedelta(days=7)).isoformat():
+            task.state='UNKNOWN'
+            notify(db,'deployment.verification_expired',task.device_id,task_id=task.id)
+    for job in db.scalars(select(BackgroundJob).where(BackgroundJob.kind == 'MAINTENANCE', BackgroundJob.status == 'RUNNING', BackgroundJob.available_at < now)):
+        job.status = 'UNKNOWN'
+    for job in db.scalars(select(BackgroundJob).where(BackgroundJob.kind=='MAINTENANCE',BackgroundJob.status.in_(['PENDING_USER_LOGON','REBOOT_REQUIRED']))):
+        recorded=job.data.get('result_recorded_at')
+        if recorded and recorded<(now-timedelta(days=7)).isoformat():job.status='UNKNOWN'
     # Security audit logs are deliberately excluded from automatic retention cleanup.
     old = select(ComplianceReport.id).where(ComplianceReport.created_at < now - timedelta(days=30))
     db.execute(delete(ComplianceCheck).where(ComplianceCheck.report_id.in_(old)))
@@ -42,7 +58,8 @@ def expire_evidence(db, settings, warm=True):
 
 
 async def automatic_enforcement(app, db, warm):
-    if not warm or not app.state.settings.router_writes_enabled:
+    from app.services.safety import operation_mode, router_write_block
+    if not warm or operation_mode(app.state.settings) not in ("controlled_test", "production"):
         return
     routers = db.scalars(select(Router)).all()
     # Server recovery and router outages never trigger speculative network actions.
@@ -67,7 +84,7 @@ async def automatic_enforcement(app, db, warm):
         if db.scalar(select(NetworkPlan.id).where(NetworkPlan.device_id == device.id, NetworkPlan.state.in_(["APPLYING", "ERROR"]))):
             continue
         for r in routers:
-            if not r.write_enabled or not r.capabilities.get("stacks"):
+            if router_write_block(app.state.settings, r) or not r.capabilities.get("stacks"):
                 continue
             snapshot = json.loads(app.state.vault.open(r.snapshot))
             try:
@@ -92,30 +109,60 @@ async def main():
     stop = asyncio.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         asyncio.get_running_loop().add_signal_handler(sig, stop.set)
-    started, router_offset = utcnow(), 0
+    started = utcnow()
+    active_operations = None
+    from app.services.telemetry import poll_all
+    from app.services.diagnostics import correlate
+    from app.services.recovery import plan_recovery
+    from app.services.infrastructure import process_batches
+    async def operations_tick():
+        await process_batches(app)
+        with sessions() as db:
+            warm = (utcnow()-started).total_seconds() >= settings.heartbeat_deadline_seconds
+            await automatic_enforcement(app, db, warm)
+            db.commit()
     while not stop.is_set():
         try:
+            from app.services.settings import apply_monitoring
+            with sessions() as settings_db: apply_monitoring(settings_db, settings)
+            if active_operations is None or active_operations.done():
+                if active_operations and active_operations.exception():
+                    log.error("worker.operations_failed error=%s", type(active_operations.exception()).__name__)
+                active_operations = asyncio.create_task(operations_tick())
+            await poll_all(app)
             with sessions() as db:
-                routers = db.scalars(select(Router).order_by(Router.id)).all()
-                # Every router must be observed within a freshness window before automation is allowed.
-                for router in routers:
-                    try:
-                        await discover(app, db, router)
-                    except Exception:
-                        log.warning("router.discovery_failed router_id=%s", router.id)
-                    db.commit()
+                correlate(db)
                 expire_evidence(db, settings)
+                plan_recovery(app, db)
+                # Track per-endpoint outcomes without conflating queued work with success.
+                for target in db.scalars(select(OperationTarget).join(NetworkBatch).where(NetworkBatch.kind == 'ENDPOINT', OperationTarget.state == 'QUEUED')):
+                    if target.preview.get('job_id'):
+                        job=db.get(BackgroundJob,target.preview['job_id'])
+                        if job and job.status in ('PENDING_USER_LOGON','REBOOT_REQUIRED'):
+                            target.deadline=max(target.deadline or job.created_at,job.created_at+timedelta(days=7))
+                        elif job and job.status not in ('PENDING','RUNNING'):target.state=job.status;target.result=job.data.get('result',{})
+                    elif target.preview.get('version_id'):
+                        d=db.get(Device,target.device_id)
+                        if d and d.reported_policy_id==target.preview['version_id'] and d.last_verified and d.last_verified > target.created_at:target.state='SUCCEEDED'
+                    else:
+                        d=db.get(Device,target.device_id)
+                        if d and d.last_heartbeat and d.last_heartbeat > target.created_at:target.state='DELIVERED'
+                    if target.state=='QUEUED' and target.deadline and target.deadline<utcnow():target.state='UNKNOWN'
+                for batch in db.scalars(select(NetworkBatch).where(NetworkBatch.kind=='ENDPOINT',NetworkBatch.state=='APPROVED')):
+                    targets=db.scalars(select(OperationTarget).where(OperationTarget.batch_id==batch.id)).all()
+                    if targets and all(t.state not in ('QUEUED','RUNNING','PENDING') for t in targets):
+                        batch.state='STOPPED' if any(t.state in ('FAILED','UNKNOWN') for t in targets) else 'COMPLETED'
                 db.commit()
-                warm = (utcnow() - started).total_seconds() >= settings.heartbeat_deadline_seconds
-                await automatic_enforcement(app, db, warm)
-                db.commit()
-                (settings.data_dir / "worker.heartbeat").touch()
+            (settings.data_dir / "worker.heartbeat").touch()
         except Exception:
             log.exception("worker.tick_failed")
         try:
             await asyncio.wait_for(stop.wait(), timeout=60 if settings.low_resource_mode else 30)
         except TimeoutError:
             pass
+    if active_operations:
+        try: await asyncio.wait_for(active_operations, timeout=30)
+        except (TimeoutError, Exception): pass
     engine.dispose()
 
 

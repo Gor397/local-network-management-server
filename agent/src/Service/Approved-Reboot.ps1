@@ -7,4 +7,4 @@ $action=New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\shutdown.exe"
 $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2)
 $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName "LanternReboot-$($m.job_id)" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-@{state='REBOOT_REQUIRED';details=@{scheduled=$true;delay_seconds=120;force_close_apps=$false}} | ConvertTo-Json -Compress
+@{state='REBOOT_REQUIRED';details=@{boot_time=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o');scheduled=$true;delay_seconds=120;force_close_apps=$false}} | ConvertTo-Json -Compress

@@ -103,7 +103,8 @@ def test_storage_migration_does_not_execute(admin, app):
     assert r.json()["destructive_execution_available"] is False
 
 
-def test_mfa_setup_and_replay(client):
+def test_mfa_setup_and_replay(client, app):
+    app.state.settings.mfa_required = True
     import pyotp
     from urllib.parse import urlparse, parse_qs
     r = client.post("/api/v1/auth/login", headers={"origin": "https://testserver"}, json={"username": "owner", "password": "test-password-at-least-16"})

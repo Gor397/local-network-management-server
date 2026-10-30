@@ -63,6 +63,11 @@ try {
     $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
     $inventory.hardware = @{ cpu=$cpu.Name; ram_bytes=([long]$os.TotalVisibleMemorySize * 1024) }
     $inventory.os = @{ caption=$os.Caption; version=$os.Version; build=$os.BuildNumber; architecture=$os.OSArchitecture }
+    $interactive=(Get-CimInstance Win32_ComputerSystem).UserName
+    if($interactive){
+        $sid=([System.Security.Principal.NTAccount]$interactive).Translate([System.Security.Principal.SecurityIdentifier]).Value
+        $inventory.session=@{windows_account=$interactive;windows_sid=$sid}
+    }
     $health.cpu_percent = $cpu.LoadPercentage
     $health.ram_percent = [math]::Round(100 * (1 - $os.FreePhysicalMemory / $os.TotalVisibleMemorySize), 1)
     $health.last_boot = $os.LastBootUpTime.ToUniversalTime().ToString('o')

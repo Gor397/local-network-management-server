@@ -4,7 +4,7 @@ namespace Lantern.Security;
 
 public sealed record AgentConfiguration(string Server, string PrimaryMac, string SigningPublicKey,
     string? DeviceId = null, string? CertificateThumbprint = null, int PollSeconds = 120,
-    string? AgentPublisherThumbprint = null)
+    string? AgentPublisherThumbprint = null, string UiLanguage = "hy")
 {
     public static AgentConfiguration Load(string root)
     {

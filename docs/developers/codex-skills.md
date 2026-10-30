@@ -8,6 +8,8 @@ The repository includes three short skills that point to maintained source maps 
 | [lantern-windows](../../.agents/skills/lantern-windows/SKILL.md) | Windows Service, signed protocol, maintenance scripts, MSI and updates | `Use $lantern-windows to diagnose enrollment after service restart.` |
 | [lantern-infrastructure](../../.agents/skills/lantern-infrastructure/SKILL.md) | Compose, offline deployment, recovery, RouterOS and lab validation | `Use $lantern-infrastructure to validate a legacy wireless discovery adapter.` |
 
+Claude Code reads the same skills through symlinks in `.claude/skills/` and the shared instructions through `CLAUDE.md`, which imports `AGENTS.md`. `.claude/settings.json` denies reading secrets and running host-network changes. Edit only the originals in `.agents/skills/`.
+
 ## How the context is organized
 
 ```mermaid

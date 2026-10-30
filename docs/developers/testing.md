@@ -79,3 +79,22 @@ A router configuration readback is only one test artifact. Full isolation needs 
 ## Acceptance mapping
 
 The A–N scenarios in the project brief are tracked in [progress](../progress.md). Automated coverage is strongest for identity, unknown/stale evidence, version changes, exceptions, developer labeling, preservation and error handling. Physical quarantine, Windows effectiveness, storage migration and complete remote software verification remain laboratory/implementation work.
+
+## Suro extension qualification
+
+Run `backend/tests/test_suro.py` and `test_suro_migration.py` for identity/owner separation, group precedence, shared-repository rollout, authorization, AP previews/readback, reboot success/failure/uncertainty, recovery loops/upstream guards, cross-source correlation, native API framing and migration preservation. Frontend tests cover all native help catalogs, search/dialog interactions and Armenian/default password-only login. `dev-check.py --area agent` now builds both Windows projects.
+
+Before rollout, add these VM/CHR/physical tests to your release record:
+
+1. Install a signed MSI as administrator, sign in as a standard user, complete Armenian onboarding with and without rank, log out/in, confirm no repeated prompt. Repeat RU/EN and enrollment without an interactive session.
+2. Disconnect networking before submission, reconnect, confirm exactly one SID record. Attempt a spoofed SID/prefabricated local pipe, malformed lengths and simultaneous clients. Confirm standard users cannot read ProgramData credentials or replace binaries/SCM configuration. Directly upgrade the original MSI and confirm the same key/device identity plus executable-only user permissions.
+3. Import actual modern WiFi, legacy wireless and CAPsMAN devices read-only; compare WinBox and encrypted/redacted snapshots. Record unavailable sensors accurately. Test REST/API-SSL TLS failures and insufficient permissions.
+4. On isolated APs, preview a Unicode SSID change, preserve private passphrases/manual settings, verify readback and reviewed inverse restoration. Remove the management route mid-operation and retain honest unknown/failure states.
+5. Reboot a group sequentially. Test protected names, stale previews, changed generation, window expiry, cancellation after issuance, API outage, missing uptime reset, server restart and a declared independent path that is itself restarting. Verify no second disruption before the first result is known.
+6. Use vendor-approved compatible NPK files and a trusted pinned SFTP key on disposable hardware. Test wrong architecture/hash/version, major transition rejection, binary backup/restore matching, reboot recovery and offline console access. CHR cannot qualify every physical wireless/firmware behavior.
+7. Generate correlated AP and client failures; confirm one primary incident, native translations, confidence, facts, maintenance suppression and history. Simulate upstream outage and resource overload; prove cooldown/attempt gates prevent recovery loops.
+8. Run controlled many-device polling and package-transfer load together. Record p50/p95 API latency, worker heartbeat gap, cgroup CPU/RAM, database/storage growth and transfer concurrency at the configured caps. No measured fleet-size guarantee exists yet.
+
+Record actual observations separately from this checklist. A successful cross-build or simulated callback is not a completed Windows/AP acceptance test.
+
+`backend/tests/test_recovery_controls.py` additionally covers narrow radio correction, opt-out/unknown desired state, execution-time revocation, expired windows, shared/gateway pressure, supported-condition validation and protected-metadata authorization. Developer-helper tests reject unsafe lab key regeneration. Dashboard component tests exercise approved-only firmware choices, AP group diagnostic scope, persisted recovery options and typed conditions.

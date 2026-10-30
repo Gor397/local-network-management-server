@@ -48,7 +48,7 @@ def login(body: Login, response: Response, request: Request, db=Depends(db_sessi
         db.commit()
         raise HTTPException(401, "auth.invalid_credentials")
     mfa_at = None
-    if admin.totp_secret:
+    if admin.totp_secret and (body.totp or request.app.state.settings.mfa_login_required):
         verify_totp(db, admin, request.app.state.vault.open(admin.totp_secret), body.totp)
         mfa_at = utcnow()
     token, csrf = secrets.token_urlsafe(48), secrets.token_hex(32)
@@ -57,7 +57,8 @@ def login(body: Login, response: Response, request: Request, db=Depends(db_sessi
     response.set_cookie("lantern_session", token, httponly=True, secure=request.app.state.settings.cookie_secure,
                         samesite="strict", max_age=28800, path="/api")
     audit(db, admin.id, "auth.login", admin.id)
-    return {"csrf": csrf, "username": admin.username, "role": admin.role, "mfa": bool(mfa_at)}
+    return {"csrf": csrf, "username": admin.username, "role": admin.role, "mfa": bool(mfa_at),
+            "mfa_available": bool(admin.totp_secret), "mfa_required": request.app.state.settings.mfa_required}
 
 
 @router.get("/me")
@@ -84,7 +85,7 @@ def mfa_setup(request: Request, identity=Depends(admin_session)):
     import json
     secret = pyotp.random_base32()
     challenge = request.app.state.vault.seal(json.dumps({"admin": admin.id, "secret": secret, "until": time.time() + 300}))
-    return {"challenge": challenge, "uri": pyotp.TOTP(secret).provisioning_uri(admin.username, issuer_name="Lantern")}
+    return {"challenge": challenge, "uri": pyotp.TOTP(secret).provisioning_uri(admin.username, issuer_name="Suro")}
 
 
 class MfaConfirm(BaseModel):

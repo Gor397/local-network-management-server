@@ -7,6 +7,9 @@ lantern_ip=$1
 lantern_dns=${2:-management.local}
 case "$lantern_ip" in *[!0-9.]*) echo 'A literal IPv4 LAN address is required'; exit 2;; esac
 case "$lantern_dns" in *[!a-zA-Z0-9.-]*) echo 'Invalid DNS name'; exit 2;; esac
+# Router management subnets. Default: the /24 around LAN_IP. Override for other or multiple subnets.
+lantern_router_networks=${ROUTER_NETWORKS:-$(echo "$lantern_ip" | cut -d. -f1-3).0/24}
+case "$lantern_router_networks" in *[!0-9./,]*) echo 'Invalid ROUTER_NETWORKS'; exit 2;; esac
 if [ "$(id -u)" != 0 ]; then echo 'Run as root to set container volume ownership (UID 10001 and GID 101).'; exit 2; fi
 mkdir -p data/keys data/trust data/tls data/repository data/recordings
 if [ ! -f .env ]; then
@@ -25,9 +28,17 @@ LAN_BIND_IP=$lantern_ip
 HTTPS_PORT=443
 COOKIE_SECURE=true
 LOW_RESOURCE_MODE=true
+OPERATION_MODE=read_only
+TEST_ROUTERS=
+TEST_DEVICES=
+ROUTER_ALLOWED_NETWORKS=$lantern_router_networks
+SSH_ALLOWED_NETWORKS=$lantern_router_networks
 ROUTER_WRITES_ENABLED=false
 DEPLOYMENT_ENABLED=false
 SSH_ENABLED=false
+MFA_REQUIRED=false
+MFA_LOGIN_REQUIRED=false
+RECOVERY_ENABLED=false
 LANTERN_TAG=0.1.0
 EOF
 fi

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Expose tracked Lantern skills in a user's Codex skill directory without overwriting other skills."""
+"""Expose tracked Suro skills in a user's Codex skill directory without overwriting other skills."""
 import argparse
 import os
 from pathlib import Path

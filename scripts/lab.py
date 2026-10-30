@@ -35,6 +35,12 @@ def prepare():
         return
     if DATA.exists() and any(DATA.iterdir()):
         raise SystemExit("Existing nonempty lab directory preserved. Recover its matching env instead of rotating keys.")
+    retained = subprocess.run(["docker", "volume", "ls", "--quiet", "--filter", "label=com.docker.compose.project=lantern-lab"],
+                              capture_output=True, text=True, check=False)
+    if retained.returncode:
+        raise SystemExit("Cannot inspect retained lab storage. Start Docker before preparing test keys.")
+    if retained.stdout.strip():
+        raise SystemExit("Retained lab database found without its matching configuration. Restore /tmp/lantern-lab.env and /tmp/lantern-lab-data from the same backup; existing volumes were preserved and no keys generated.")
     (DATA / "keys").mkdir(parents=True, exist_ok=True, mode=0o700)
     (DATA / "tls").mkdir(exist_ok=True)
     for name in ("ca", "signing"):
@@ -50,7 +56,7 @@ def prepare():
               "POSTGRES_PASSWORD": password, "DATABASE_URL": f"postgresql+psycopg://lantern:{password}@db/lantern",
               "ENCRYPTION_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(), "DATA_DIR": "/data",
               "PUBLIC_ORIGIN": ORIGIN, "TRUSTED_HOSTS": "localhost,127.0.0.1", "COOKIE_SECURE": "true",
-              "LOW_RESOURCE_MODE": "true", "ROUTER_WRITES_ENABLED": "false", "DEPLOYMENT_ENABLED": "false", "SSH_ENABLED": "false", "LANTERN_TAG": "0.1.0"}
+              "LOW_RESOURCE_MODE": "true", "OPERATION_MODE": "read_only", "ROUTER_ALLOWED_NETWORKS": "127.0.0.1/32", "ROUTER_WRITES_ENABLED": "false", "DEPLOYMENT_ENABLED": "false", "SSH_ENABLED": "false", "LANTERN_TAG": "0.1.0"}
     ENV.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
     ENV.chmod(0o600)
     print("Prepared test-only keys and configuration. Build/import images, then run lab.py up.")
@@ -111,13 +117,17 @@ print('Isolated MFA test identity prepared.')
         with opener.open(req, timeout=30) as response:
             raw = response.read()
             return json.loads(raw) if "application/json" in response.headers.get("content-type", "") else raw.decode()
-    assert "Lantern" in request("/")
+    assert "Suro" in request("/")
     code_bytes = hmac.new(base64.b32decode(secret), (int(time.time()) // 30).to_bytes(8, "big"), hashlib.sha1).digest()
     index = code_bytes[-1] & 15
     totp = str((int.from_bytes(code_bytes[index:index+4], "big") & 0x7fffffff) % 1000000).zfill(6)
     identity = request("/api/v1/auth/login", "POST", {"username": "lab-smoke", "password": password, "totp": totp})
     csrf = identity["csrf"]
     assert identity["mfa"] is True
+    request('/api/v1/auth/logout','POST')
+    identity=request('/api/v1/auth/login','POST',{'username':'lab-smoke','password':password})
+    csrf=identity['csrf']
+    assert not identity['mfa'] and identity['mfa_available']
     suffix = uuid.uuid4().hex[:10]
     mac = "00:" + ":".join(f"{b:02X}" for b in secrets.token_bytes(5))
     device = request("/api/v1/devices", "POST", {"hostname": "Lab-" + suffix, "primary_mac": mac})
@@ -128,7 +138,16 @@ print('Isolated MFA test identity prepared.')
     assert inventory["total"] == 1 and inventory["items"][0]["state"] == "UNVERIFIED"
     compliance = request(f'/api/v1/devices/{device["id"]}/compliance')
     assert compliance["score"] < 100
-    result = {"https": True, "mfa_login": True, "device_registration": True, "policy_publish_assign": True,
+    request(f'/api/v1/devices/{device["id"]}/owner','PUT',{'full_name':'Արամ Սարգսյան','military_rank':None,'verified':True,'reason':'Isolated Unicode owner smoke test'})
+    group=request('/api/v1/groups','POST',{'name':'Lab group '+suffix,'device_ids':[device['id']]})
+    assert group['id']
+    ap_group=request('/api/v1/mikrotik/groups','POST',{'name':'Lab AP group '+suffix,'router_ids':[]})
+    assert ap_group['id']
+    assert request('/api/v1/devices?q='+urllib.parse.quote('Արամ'))['total']>=1
+    assert request('/api/v1/system/monitoring-settings')['recovery_enabled'] is False
+    assert request('/api/v1/network/topology')['unknown_links']
+    assert request('/api/v1/incidents')['items']==[]
+    result = {"https": True, "mfa_login": True, "password_only_login":True,"unicode_owners":True,"separate_groups":True,"topology":True,"safe_monitoring_defaults":True,"device_registration": True, "policy_publish_assign": True,
               "unverified_evidence_gate": True, "resources": request("/api/v1/system/resources")}
     request("/api/v1/auth/logout", "POST")
     Path("/tmp/lantern-lab-verification.json").write_text(json.dumps(result, indent=2) + "\n")

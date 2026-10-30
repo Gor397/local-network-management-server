@@ -7,9 +7,17 @@ $signature = Get-AuthenticodeSignature -LiteralPath $PackageFile
 if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $m.publisher_thumbprint) { throw 'Untrusted update publisher' }
 $config = Get-Content "$env:ProgramData\Lantern\config.json" -Raw | ConvertFrom-Json
 if ($m.publisher_thumbprint -ne $config.agent_publisher_thumbprint) { throw 'Agent update signer must match pinned publisher' }
-$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\msiexec.exe" -Argument "/i `"$PackageFile`" /qn /norestart /l*v `"$ManifestFile.update.log`""
+if(-not $m.metadata.expected_version){throw 'Expected agent version required'}
+$build=[int](Get-CimInstance Win32_OperatingSystem).BuildNumber
+$arch=[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+if($build -lt $m.metadata.minimum_build -or $build -gt $m.metadata.maximum_build -or $arch -ne $m.metadata.architecture){throw 'Incompatible agent update'}
+$current=(Get-Item (Join-Path $env:ProgramFiles 'Lantern Policy Agent\NetworkPolicyClient.exe')).VersionInfo.FileVersion
+if([version]$m.metadata.expected_version -lt [version]$current){throw 'Agent downgrade requires the documented recovery procedure'}
+
+$script=Join-Path $PSScriptRoot 'Complete-AgentUpdate.ps1'
+$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument "-NoProfile -NonInteractive -ExecutionPolicy AllSigned -File `"$script`" -ManifestFile `"$ManifestFile`" -PackageFile `"$PackageFile`""
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest -LogonType ServiceAccount
 Register-ScheduledTask -TaskName 'LanternApprovedAgentUpdate' -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
 # Completion must be checked after restart; staging is never reported as a verified update.
-@{state='UNKNOWN';exit_code=0;verified=$false} | ConvertTo-Json -Compress
+@{state='AWAITING_RESTART';exit_code=0;verified=$false;details=@{boot_time=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Depth 5 -Compress

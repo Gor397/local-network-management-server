@@ -12,6 +12,7 @@ public sealed class AgentTransport : IDisposable
     readonly X509Certificate2 certificate;
     readonly RSA privateKey;
     readonly string fingerprint;
+    readonly object signingLock = new();
 
     public AgentTransport(AgentConfiguration config)
     {
@@ -37,7 +38,9 @@ public sealed class AgentTransport : IDisposable
         request.Headers.Add("X-Device-Certificate", fingerprint);
         request.Headers.Add("X-Device-Time", timestamp);
         request.Headers.Add("X-Device-Nonce", nonce);
-        request.Headers.Add("X-Device-Signature", Convert.ToBase64String(privateKey.SignData(Encoding.UTF8.GetBytes(message), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)));
+        byte[] signature;
+        lock(signingLock) signature=privateKey.SignData(Encoding.UTF8.GetBytes(message), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.Headers.Add("X-Device-Signature", Convert.ToBase64String(signature));
         if (bytes.Length > 0)
         {
             request.Content = new ByteArrayContent(bytes);

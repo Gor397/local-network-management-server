@@ -24,4 +24,7 @@ using var expired=JsonDocument.Parse(JsonSerializer.Serialize(document).Replace(
 Reject(()=>SignedDocument.ValidatePolicy(expired.RootElement,"device-a"),"Expired policy rejected");
 using var unsafePolicy=JsonDocument.Parse(JsonSerializer.Serialize(document).Replace("\"user\"","\"user;whoami\""));
 Reject(()=>SignedDocument.ValidatePolicy(unsafePolicy.RootElement,"device-a"),"Unsafe account identifier rejected");
+Assert(SignedDocument.UtcInstant("2026-10-30T12:00:00")==new DateTime(2026,10,30,12,0,0,DateTimeKind.Utc),"Legacy UTC timestamps are independent of local timezone");
+Assert(SignedDocument.UtcInstant("2026-10-30T16:00:00+04:00")==SignedDocument.UtcInstant("2026-10-30T12:00:00Z"),"Explicit Armenian UTC offset is honored");
+Assert(SignedDocument.UtcInstant("2026-10-30T12:00:00").Kind==DateTimeKind.Utc,"Decoded timestamps retain UTC kind");
 Console.WriteLine($"{passed} contract tests passed. Windows behavior still requires VM verification.");

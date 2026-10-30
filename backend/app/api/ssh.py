@@ -114,7 +114,7 @@ async def terminal(ws: WebSocket, session_id: str):
             await ws.close(4401)
             return
         if (not s or not login or not admin or not admin.enabled or "ssh" not in PERMISSIONS.get(admin.role, set())
-                or login.expires_at <= utcnow() or not login.mfa_at or login.mfa_at < utcnow() - timedelta(minutes=10)
+                or login.expires_at <= utcnow() or (app.state.settings.mfa_required and (not login.mfa_at or login.mfa_at < utcnow() - timedelta(minutes=10)))
                 or s.admin_id != admin.id or s.state != "AUTHORIZED" or s.expires_at < utcnow()
                 or not secrets.compare_digest(digest(ticket), s.ticket_hash)):
             await ws.close(4403)

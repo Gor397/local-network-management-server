@@ -28,7 +28,7 @@ def validate_host(url, allowed_networks):
 
 def redact(value):
     if isinstance(value, dict):
-        return {k: ("[REDACTED]" if any(s in k.lower() for s in ("password", "passphrase", "secret", "private-key", "psk")) else redact(v)) for k, v in value.items()}
+        return {k: ("[REDACTED]" if k.lower() == "key" or any(s in k.lower() for s in ("password", "passphrase", "secret", "private-key", "psk", "pre-shared-key")) else redact(v)) for k, v in value.items()}
     if isinstance(value, list):
         return [redact(v) for v in value]
     return value
@@ -54,11 +54,12 @@ class RouterOS:
     async def __aexit__(self, *args):
         await self.client.aclose()
 
-    async def read(self, path, optional=False):
-        response = await self.client.get(path)
+    async def read(self, path, optional=False, properties=None):
+        response = await self.client.get(path, params={".proplist": properties} if properties else None)
         if optional and response.status_code in (400, 404):
             try:
-                message = response.json().get("message", "")
+                error = response.json()
+                message = error.get("message", "") + " " + error.get("detail", "")
             except ValueError:
                 message = ""
             if response.status_code == 404 or "no such command" in message:
@@ -66,6 +67,21 @@ class RouterOS:
         response.raise_for_status()
         data = response.json()
         return data if isinstance(data, list) else [data]
+
+    async def command(self, path, data=None):
+        if path not in {"system/reboot", "system/backup/save", "system/backup/load", "ping", "interface/monitor-traffic", "file/read"}:
+            raise ValueError("network.operation_not_allowed")
+        response = await self.client.post(path, json=data or {})
+        response.raise_for_status()
+        return response.json() if response.content else {}
+
+    async def configure(self, path, record_id, data):
+        allowed = {"interface/wifi", "interface/wireless", "caps-man/interface", "system/identity"}
+        if path not in allowed or not record_id.startswith("*") or "/" in record_id:
+            raise ValueError("network.operation_not_allowed")
+        response = await self.client.post("system/identity/set", json=data) if path == "system/identity" else await self.client.patch(path + "/" + record_id, json=data)
+        response.raise_for_status()
+        return response.json()
 
     async def discovery(self):
         snapshot = {}
@@ -82,6 +98,11 @@ class RouterOS:
                 snapshot[interfaces] = data
                 snapshot[acl] = await self.read(acl)
                 snapshot[registrations] = await self.read(registrations)
+        for path in ("system/routerboard", "system/identity", "system/health", "interface/ethernet", "interface/vlan",
+                     "interface/wifi/security", "interface/wifi/configuration", "caps-man/configuration", "interface/wireless/security-profiles", "caps-man/security", "caps-man/remote-cap",
+                     "interface/wifi/capsman/remote-cap", "log"):
+            data = await self.read(path, optional=True)
+            snapshot[path] = (data[-100:] if path == "log" and data else data) or []
         capabilities["version"] = snapshot["system/resource"][0].get("version", "unknown")
         capabilities["board"] = snapshot["system/resource"][0].get("board-name", "unknown")
         capabilities["packages"] = [p.get("name") for p in snapshot["system/package"]]

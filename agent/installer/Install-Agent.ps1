@@ -19,7 +19,7 @@ $provision.token | Set-Content "$root\enrollment.token" -Encoding ASCII
 $process = Start-Process "$env:SystemRoot\System32\msiexec.exe" -ArgumentList @('/i',"`"$MsiPath`"",'/qn','/norestart') -Wait -PassThru
 if ($process.ExitCode -notin @(0,3010)) { throw "MSI installation failed: $($process.ExitCode)" }
 $installation = "$env:ProgramFiles\Lantern Policy Agent"
-& icacls.exe $installation '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+& icacls.exe $installation '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Failed to protect installed files' }
 # SCM permissions: only SYSTEM and Administrators can modify or stop the service.
 & sc.exe sdset LocalNetworkPolicyAgent 'D:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;AU)' | Out-Null
@@ -28,4 +28,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to protect service configuration' }
 & "$installation\NetworkPolicyClient.exe" --enroll
 if ($LASTEXITCODE -ne 0) { throw 'Enrollment failed. Protected token retained for retry until it expires.' }
 Start-Service LocalNetworkPolicyAgent
+# HKLM Run launches the separate user-session helper at interactive logon, never in Session 0.
+$run='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+New-ItemProperty -Path $run -Name SuroIdentification -PropertyType String -Value "`"$installation\IdentityUI\SuroIdentity.exe`"" -Force | Out-Null
+if ((Get-CimInstance Win32_ComputerSystem).UserName) {
+    $interactive=(Get-CimInstance Win32_ComputerSystem).UserName
+    $action=New-ScheduledTaskAction -Execute "$installation\IdentityUI\SuroIdentity.exe"
+    $principal=New-ScheduledTaskPrincipal -UserId $interactive -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName SuroIdentificationInitial -Action $action -Principal $principal -Force | Out-Null
+    Start-ScheduledTask -TaskName SuroIdentificationInitial
+}
 Write-Output 'Enrolled in Audit Mode. Securely remove the original provisioning file.'

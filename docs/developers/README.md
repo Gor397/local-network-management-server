@@ -6,6 +6,9 @@ Diagrams use Mermaid blocks, which render in compatible Markdown viewers. Each d
 
 | Question | Read |
 |---|---|
+| How do the Suro owner/AP/group/recovery additions fit together? | [Illustrated extension guide](suro-expansion.md) |
+| How do I operate the new features? | [Suro administrator workflow](../suro-operations.md) |
+| How do I run Suro on a laptop that is on the internet LAN and the live Wi-Fi? | [Dual-network setup and safety modes](../development/dual-network-setup.md) |
 | What runs where? | [Architecture](../architecture.md) |
 | What happens when a PC joins? | [One device, end to end](walkthrough.md) |
 | Which file should I change? | [Code map](code-map.md) |
@@ -16,6 +19,7 @@ Diagrams use Mermaid blocks, which render in compatible Markdown viewers. Each d
 | How do I implement a feature and test it? | [Contribution recipes](contributing.md) |
 | What tests need Windows or MikroTik? | [Validation and lab testing](testing.md) |
 | How can Codex avoid rediscovering everything? | [Project skills](codex-skills.md) |
+| What did the latest safety audit find? | [Audit findings](../audit/findings.md) |
 | What is unfinished? | [Implementation ledger](../progress.md) |
 
 ## The five ideas to learn first

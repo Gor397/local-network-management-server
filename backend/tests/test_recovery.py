@@ -20,7 +20,8 @@ def test_alembic_upgrade_downgrade_roundtrip(tmp_path,monkeypatch):
     config.set_main_option('script_location',str(backend/'migrations'))
     command.upgrade(config,'head')
     engine=create_engine(f'sqlite:///{tmp_path}/migrations.db')
-    assert len(inspect(engine).get_table_names())==37
+    from app.db import Base
+    assert len(inspect(engine).get_table_names())==len(Base.metadata.tables)+1
     assert any(c['column_names']==['address'] for c in inspect(engine).get_unique_constraints('dhcp_reservations'))
     command.downgrade(config,'base')
     assert inspect(engine).get_table_names()==['alembic_version']

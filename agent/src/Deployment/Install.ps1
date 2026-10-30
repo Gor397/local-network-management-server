@@ -9,12 +9,14 @@ $build = [int](Get-CimInstance Win32_OperatingSystem).BuildNumber
 if ($build -lt $m.metadata.minimum_build -or $build -gt $m.metadata.maximum_build) { throw 'Windows build is incompatible' }
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 if ($arch -ne $m.metadata.architecture) { throw 'Architecture is incompatible' }
+. (Join-Path $PSScriptRoot 'Get-DeploymentState.ps1')
+$boot=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')
 $product = $m.metadata.product_code
 function ProductInstalled {
     if (-not $product) { return $false }
     return ((Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$product") -or (Test-Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$product"))
 }
-if ($m.action -eq 'install' -and (ProductInstalled)) { @{state='SKIPPED';exit_code=0;verified=$true} | ConvertTo-Json -Compress; exit 0 }
+if ($m.action -eq 'install' -and (Get-SuroInstalledState $m).matches) { @{state='SKIPPED';exit_code=0;verified=$true} | ConvertTo-Json -Compress; exit 0 }
 $windows = $env:SystemRoot
 $exitCode = 0
 $verified = $false
@@ -40,8 +42,11 @@ switch ($m.kind) {
     }
     'script' { $exitCode = Execute "$windows\System32\WindowsPowerShell\v1.0\powershell.exe" (@('-NoProfile','-NonInteractive','-ExecutionPolicy','AllSigned','-File',$PackageFile) + @($m.arguments)) }
     'msix' {
-        if ($m.action -eq 'uninstall') { throw 'MSIX removal requires an approved package-identity script' }
-        Add-AppxProvisionedPackage -Online -PackagePath $PackageFile -SkipLicense | Out-Null
+        if(-not $m.metadata.msix_name){throw 'MSIX name is required for detection and removal'}
+        if ($m.action -eq 'uninstall') {
+            Get-AppxPackage -AllUsers -Name $m.metadata.msix_name | ForEach-Object {Remove-AppxPackage -AllUsers -Package $_.PackageFullName}
+            Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq $m.metadata.msix_name | ForEach-Object {Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName | Out-Null}
+        }else{Add-AppxProvisionedPackage -Online -PackagePath $PackageFile -SkipLicense | Out-Null}
         # Provisioning is distinct from installation into every existing user profile.
     }
     'driver' {
@@ -70,5 +75,7 @@ switch ($m.kind) {
     }
     default { throw 'Unsupported deployment package kind' }
 }
+$detected=Get-SuroInstalledState $m
+$verified=$detected.matches
 $state = if ($exitCode -in @(3010,1641)) {'REBOOT_REQUIRED'} elseif ($exitCode -ne 0) {'FAILED'} elseif ($verified) {'SUCCEEDED'} else {'UNKNOWN'}
-@{state=$state;exit_code=$exitCode;verified=[bool]$verified} | ConvertTo-Json -Compress
+@{state=$state;exit_code=$exitCode;verified=[bool]$verified;details=@{boot_time=$boot;version=$detected.version;source='windows_readback'}} | ConvertTo-Json -Depth 5 -Compress

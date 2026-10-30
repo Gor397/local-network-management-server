@@ -27,7 +27,7 @@ public static class EnrollmentClient
         if (File.Exists(csrPath)) csr = await File.ReadAllTextAsync(csrPath);
         else
         {
-            var request = new CertificateRequest("CN=Pending Lantern Device", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var request = new CertificateRequest("CN=Pending Suro Device", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             csr = request.CreateSigningRequestPem();
             await File.WriteAllTextAsync(csrPath, csr);
         }
@@ -39,7 +39,7 @@ public static class EnrollmentClient
             response.EnsureSuccessStatusCode();
             if (response.StatusCode == HttpStatusCode.Accepted)
             {
-                Console.WriteLine("Certificate request is awaiting administrator approval.");
+                Console.WriteLine(config.UiLanguage == "ru" ? "Запрос сертификата ожидает подтверждения администратора." : config.UiLanguage == "en" ? "Certificate request is awaiting administrator approval." : "Վկայագրի հարցումը սպասում է ադմինիստրատորի հաստատմանը։");
                 await Task.Delay(TimeSpan.FromSeconds(10));
                 continue;
             }
@@ -52,7 +52,7 @@ public static class EnrollmentClient
             var saved = config with { DeviceId = document.RootElement.GetProperty("device_id").GetString(), CertificateThumbprint = identity.Thumbprint };
             await File.WriteAllTextAsync(Path.Combine(root, "config.json"), JsonSerializer.Serialize(saved, Json.Options));
             File.Delete(tokenFile);
-            Console.WriteLine("Device enrolled. Start LocalNetworkPolicyAgent.");
+            Console.WriteLine(config.UiLanguage == "ru" ? "Устройство зарегистрировано в Suro. Запустите LocalNetworkPolicyAgent." : config.UiLanguage == "en" ? "Device enrolled in Suro. Start LocalNetworkPolicyAgent." : "Սարքը գրանցվել է Suro-ում։ Գործարկեք LocalNetworkPolicyAgent ծառայությունը։");
             return;
         }
     }

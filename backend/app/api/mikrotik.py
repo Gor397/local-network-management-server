@@ -1,7 +1,8 @@
 import ipaddress
 import json
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal
 from sqlalchemy import select
 from app.auth.dependencies import db_session, require, audit
 from app.db import utcnow
@@ -20,13 +21,28 @@ class RouterCreate(BaseModel):
     username: str = Field(max_length=128)
     password: str = Field(min_length=1, max_length=1024)
     ca_file: str | None = None
+    transport: Literal["REST", "API_SSL", "API"] = "REST"
+    role: Literal["ACCESS_POINT", "ROUTER", "GATEWAY", "CONTROLLER"] = "ACCESS_POINT"
+    protected: bool = False
+
+    @field_validator("name", "base_url", "username")
+    @classmethod
+    def trimmed(cls, value):
+        # Pasted values often carry spaces; passwords are deliberately left untouched.
+        return value.strip()
 
 
 @router.get("/routers")
 def routers(admin=Depends(require("read")), db=Depends(db_session)):
+    rows = db.scalars(select(Router).where(Router.archived.is_(False)).order_by(Router.controller_id.is_not(None), Router.name)).all()
+    names = {r.id: r.name for r in rows}
     return [{"id": r.id, "name": r.name, "base_url": r.base_url, "status": r.status,
              "capabilities": r.capabilities, "last_seen": r.last_seen, "write_enabled": r.write_enabled,
-             "backup_available": bool(r.snapshot)} for r in db.scalars(select(Router).order_by(Router.name))]
+             "role": r.role, "protected": r.protected, "transport": r.transport, "inventory": r.inventory,
+             "health": r.health, "last_health": r.last_health, "last_inventory": r.last_inventory,
+             "last_reboot": r.last_reboot, "desired_config": r.desired_config, "recovery_policy":r.recovery_policy,
+             "backup_available": bool(r.snapshot), "controller_id": r.controller_id,
+             "controller_name": names.get(r.controller_id)} for r in rows]
 
 
 @router.post("/routers", status_code=201)
@@ -38,9 +54,18 @@ def create_router(body: RouterCreate, request: Request, admin=Depends(require("n
     # Literal addresses prevent DNS rebinding between validation and connection.
     from urllib.parse import urlparse
     try:
-        ipaddress.ip_address(urlparse(body.base_url).hostname)
+        address = ipaddress.ip_address(urlparse(body.base_url).hostname)
     except ValueError:
         raise HTTPException(422, "network.literal_ip_required") from None
+    for network in request.app.state.settings.router_allowed_networks.split(","):
+        network = ipaddress.ip_network(network.strip())
+        if network.prefixlen < network.max_prefixlen - 1 and address in (network.network_address, network.broadcast_address):
+            raise HTTPException(422, "network.network_address")
+    if body.transport == "API" and not request.app.state.settings.router_plaintext_api_allowed:
+        raise HTTPException(409, "network.plaintext_api_disabled")
+    if db.scalar(select(Router.id).where(Router.archived.is_(True),
+                                          (Router.name == body.name) | (Router.base_url == body.base_url.rstrip("/")))):
+        raise HTTPException(409, "router.archived_duplicate")
     if body.ca_file:
         from pathlib import Path
         allowed = (request.app.state.settings.data_dir / "trust").resolve()
@@ -48,7 +73,8 @@ def create_router(body: RouterCreate, request: Request, admin=Depends(require("n
         if not path.is_relative_to(allowed) or not path.is_file():
             raise HTTPException(422, "network.invalid_ca_file")
     r = Router(name=body.name, base_url=body.base_url.rstrip("/"), username=body.username,
-               secret=request.app.state.vault.seal(body.password), ca_file=body.ca_file)
+               secret=request.app.state.vault.seal(body.password), ca_file=body.ca_file,
+               transport=body.transport, role=body.role, protected=body.protected or body.role == "GATEWAY")
     db.add(r)
     db.flush()
     audit(db, admin.id, "router.registered", r.id)
@@ -60,6 +86,8 @@ async def discovery(router_id: str, request: Request, admin=Depends(require("net
     r = db.get(Router, router_id)
     if not r:
         raise HTTPException(404, "router.not_found")
+    if r.transport == "CAPSMAN":
+        raise HTTPException(409, "router.managed_by_controller")
     try:
         result = await discover(request.app, db, r)
     except Exception:
@@ -189,7 +217,8 @@ def reserve(device_id: str, body: Reserve, request: Request, admin=Depends(requi
 
 class Developer(BaseModel):
     mac: str
-    subnet_id: str
+    subnet_id: str|None=None
+    profile_id:str|None=None
     hostname: str = Field(default="Developer device", min_length=1, max_length=128)
 
 
@@ -204,7 +233,14 @@ def developer(body: Developer, request: Request, admin=Depends(require("network"
     d = Device(hostname=body.hostname, primary_mac=mac, device_class="DEVELOPER", state="UNVERIFIED")
     db.add(d)
     db.flush()
-    result = create_lease_preview(db, request.app, d, body.subnet_id, admin)
+    if body.profile_id:
+        from app.models import NetworkProfile
+        from app.api.profiles import create_registration_plans
+        p=db.get(NetworkProfile,body.profile_id)
+        if not p:raise HTTPException(404,'network.profile_not_found')
+        result=create_registration_plans(db,request.app,d,p,admin)
+    elif body.subnet_id:result = create_lease_preview(db, request.app, d, body.subnet_id, admin)
+    else:raise HTTPException(422,'network.profile_or_subnet_required')
     audit(db, admin.id, "developer.registered", d.id, endpoint_compliance="UNMANAGED")
     return {"device": serialize_device(d, request.app.state.settings), **result}
 

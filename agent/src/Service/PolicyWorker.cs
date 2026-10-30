@@ -19,17 +19,21 @@ public sealed class PolicyWorker(AgentConfiguration config, LocalState state, Ag
     {
         var deployer = new DeploymentRunner(config, state, transport);
         var maintenance = new MaintenanceRunner(config, state, transport);
+        var verifier=new DeploymentVerifier(config,state,transport);
         Task activeDeployment = Task.CompletedTask;
+        var diagnostics = new Lantern.Monitoring.DiagnosticsBuffer(state, transport);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await Reconcile(stoppingToken);
+                await diagnostics.Capture(true, stoppingToken);
+                await diagnostics.Flush(stoppingToken);
+                await Lantern.Enrollment.IdentityPipeService.Flush(state, transport, stoppingToken);
                 if (activeDeployment.IsCompleted)
                 {
                     if (activeDeployment.IsFaulted) logger.LogWarning("Deployment background task failed; inspect durable execution ledger.");
-                    await maintenance.RunNext(stoppingToken);
-                    activeDeployment = deployer.RunNext(stoppingToken);
+                    activeDeployment = PrivilegedCycle();
                 }
                 failures = 0;
             }
@@ -39,10 +43,18 @@ public sealed class PolicyWorker(AgentConfiguration config, LocalState state, Ag
                 failures = Math.Min(failures + 1, 8);
                 logger.LogWarning("Agent cycle failed: {ErrorType}", exception.GetType().Name);
                 await state.Log("agent.cycle_failed", new { error = exception.GetType().Name, failures });
+                try { await diagnostics.Capture(exception is HttpRequestException ? (bool?)false : null, stoppingToken); } catch (Exception) { /* Reporting failure must not create an unbounded retry loop. */ }
             }
             int seconds = Math.Min(900, config.PollSeconds * (1 << Math.Min(failures, 3)));
             try { await Task.Delay(TimeSpan.FromSeconds(seconds + Random.Shared.Next(0, 10)), stoppingToken); }
             catch (OperationCanceledException) { break; }
+        }
+        async Task PrivilegedCycle()
+        {
+            await verifier.Run(stoppingToken);
+            await maintenance.VerifyPending(stoppingToken);
+            await maintenance.RunNext(stoppingToken);
+            await deployer.RunNext(stoppingToken);
         }
     }
 
@@ -53,7 +65,7 @@ public sealed class PolicyWorker(AgentConfiguration config, LocalState state, Ag
         {
             using var cached = SignedDocument.Verify(await File.ReadAllTextAsync(state.PathFor("policy.envelope.json"), token), config.SigningPublicKey);
             version = cached.RootElement.GetProperty("version_id").GetString();
-            if (DateTime.Parse(cached.RootElement.GetProperty("valid_until").GetString()!) < DateTime.UtcNow.AddHours(1)) etag = null;
+            if (SignedDocument.UtcInstant(cached.RootElement.GetProperty("valid_until").GetString()!) < DateTime.UtcNow.AddHours(1)) etag = null;
         }
         using var heartbeat = await transport.Send(HttpMethod.Post, "api/v1/agent/heartbeat", new {
             agent_version = typeof(PolicyWorker).Assembly.GetName().Version?.ToString() ?? "0.1.0",

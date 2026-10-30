@@ -19,7 +19,7 @@ public sealed class DeploymentRunner(AgentConfiguration config, LocalState state
         using var manifest = SignedDocument.Verify(task.GetRawText(), config.SigningPublicKey);
         var m = manifest.RootElement;
         if (m.GetProperty("schema_version").GetInt32() != 1 || m.GetProperty("device_id").GetString() != config.DeviceId
-            || DateTime.Parse(m.GetProperty("expires_at").GetString()!).ToUniversalTime() < DateTime.UtcNow)
+            || SignedDocument.UtcInstant(m.GetProperty("expires_at").GetString()!) < DateTime.UtcNow)
             throw new InvalidDataException("Deployment authorization invalid.");
         string id = m.GetProperty("task_id").GetString()!;
         int attempt = m.GetProperty("attempt").GetInt32();
@@ -52,6 +52,8 @@ public sealed class DeploymentRunner(AgentConfiguration config, LocalState state
                 await Report(id, new { attempt, state = "CANCELLED", verified = false }, token);
                 return;
             }
+            if(checkDocument.RootElement.GetProperty("state").GetString()!="RUNNING" || SignedDocument.UtcInstant(m.GetProperty("expires_at").GetString()!)<DateTime.UtcNow)
+                throw new InvalidDataException("Installation authorization expired during download.");
             string manifestPath = state.PathFor($"deployment-{id}.manifest.json");
             await state.Save($"deployment-{id}.manifest.json", m.GetRawText());
             await state.Save(ledger, JsonSerializer.Serialize(new { state = "RUNNING", attempt }));
@@ -64,12 +66,14 @@ public sealed class DeploymentRunner(AgentConfiguration config, LocalState state
                 using var parsed = JsonDocument.Parse(result.Output);
                 reported = new { attempt, state = parsed.RootElement.GetProperty("state").GetString(),
                     exit_code = parsed.RootElement.GetProperty("exit_code").GetInt32(), verified = parsed.RootElement.GetProperty("verified").GetBoolean(),
+                    details=parsed.RootElement.TryGetProperty("details",out var details)?details.Clone():JsonSerializer.SerializeToElement(new{}),
                     log_tail = result.Error[..Math.Min(16000, result.Error.Length)] };
             }
             else reported = new { attempt, state = "FAILED", exit_code = result.ExitCode, verified = false, log_tail = result.Error[..Math.Min(16000, result.Error.Length)] };
             string record = JsonSerializer.Serialize(reported, Json.Options);
             await state.Save(ledger, record);
             await Report(id, reported, token);
+            await File.WriteAllTextAsync(state.PathFor(ledger)+".reported","acknowledged",token);
             await state.Log("deployment.finished", new { id, attempt, result.ExitCode });
         }
         catch (OperationCanceledException) { throw; }
@@ -100,8 +104,15 @@ public sealed class DeploymentRunner(AgentConfiguration config, LocalState state
         if (offset > size) throw new InvalidDataException("Partial download exceeds expected size.");
         if (offset < size)
         {
-            using var response = await transport.Send(HttpMethod.Get, $"api/v1/agent/packages/{id}",
-                headers: offset > 0 ? new() { ["Range"] = $"bytes={offset}-" } : null, streaming: true, cancellationToken: token);
+            HttpResponseMessage response;
+            int retries=0;
+            while(true)
+            {
+                response=await transport.Send(HttpMethod.Get,$"api/v1/agent/packages/{id}",headers:offset>0?new(){["Range"]=$"bytes={offset}-"}:null,streaming:true,cancellationToken:token);
+                if((response.StatusCode!=HttpStatusCode.TooManyRequests&&response.StatusCode!=HttpStatusCode.ServiceUnavailable)||retries>=5)break;
+                response.Dispose();await Task.Delay(TimeSpan.FromSeconds(Math.Min(30,2<<retries++)),token);
+            }
+            using var ownedResponse=response;
             response.EnsureSuccessStatusCode();
             if (offset > 0 && (response.StatusCode != HttpStatusCode.PartialContent || response.Content.Headers.ContentRange?.From != offset))
                 throw new InvalidDataException("Download resume range mismatch.");

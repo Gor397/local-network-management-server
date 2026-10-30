@@ -4,7 +4,7 @@ The source of truth is `backend/app/api/`, `auth/dependencies.py`, and the corre
 
 ## Browser requests
 
-Login checks the configured `PUBLIC_ORIGIN`, verifies the password with Argon2, and verifies TOTP when configured. The browser receives a `Secure`, `HttpOnly`, `SameSite=Strict` session cookie with path `/api`. The database stores the hash of the opaque session token.
+Login checks the configured `PUBLIC_ORIGIN`, verifies the password with Argon2, and verifies TOTP when supplied, or requires it when `MFA_LOGIN_REQUIRED=true`. Both MFA enforcement flags default to false; existing TOTP secrets remain usable. The browser receives a `Secure`, `HttpOnly`, `SameSite=Strict` session cookie with path `/api`. The database stores the hash of the opaque session token.
 
 Mutations require both:
 
@@ -13,7 +13,7 @@ Origin: exact PUBLIC_ORIGIN
 X-CSRF-Token: session's CSRF value
 ```
 
-Permission checks are server-side. `owner`, `operator`, `viewer`, and `deployer` are administrator roles; they are unrelated to endpoint classes such as `ADMINISTRATOR`. Privileged actions require MFA within the last ten minutes. Sessions expire after eight hours; a TOTP time step cannot be reused for another successful verification.
+Permission checks are server-side. `owner`, `operator`, `viewer`, and `deployer` are administrator roles; they are unrelated to endpoint classes such as `ADMINISTRATOR`. Privileged actions require a recent TOTP verification only when `MFA_REQUIRED=true`; it is false by default. Sessions expire after eight hours; a TOTP time step cannot be reused for another successful verification.
 
 `frontend/src/api/client.ts` sends credentials and CSRF. Do not implement separate ad hoc fetch helpers that omit those controls.
 
@@ -98,7 +98,7 @@ An individual evaluation result includes:
 
 ## Large file transfer
 
-1. An MFA-authorized uploader supplies package metadata, expected size and SHA-256.
+1. An authorized uploader (with recent MFA when enforcement is enabled) supplies package metadata, expected size and SHA-256.
 2. The server creates an upload UUID or returns the existing content-addressed package.
 3. Chunks are written with an exact expected offset. An out-of-order offset is a conflict, not an append.
 4. Completion hashes the file and publishes it under its SHA-256 object name.
@@ -109,7 +109,7 @@ Downloads accept a single byte range. The agent verifies range position, total s
 
 ## SSH WebSocket
 
-The browser first creates an authorized SSH session through an ordinary CSRF-protected API request. The returned ticket is short-lived and sent as the first WebSocket message, not as a URL query parameter. The broker checks the browser session, permission, MFA, origin, ticket, device eligibility and configured pinned host key.
+The browser first creates an authorized SSH session through an ordinary CSRF-protected API request. The returned ticket is short-lived and sent as the first WebSocket message, not as a URL query parameter. The broker checks the browser session, permission, optional enforced MFA, origin, ticket, device eligibility and configured pinned host key.
 
 The WebSocket then carries terminal text. Input and output are recorded as encrypted frames. The current terminal supports a fixed initial terminal size; dynamic resize, file transfer auditing and complete command attribution are not implemented. [Privileged operations](privileged-operations.md) explains the limits.
 

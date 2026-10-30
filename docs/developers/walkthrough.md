@@ -6,7 +6,7 @@ This example uses `PC-001`, a standard Windows device. It follows real handlers 
 
 In the dashboard, register the hostname and primary Wi-Fi MAC. `POST /api/v1/devices` creates a `Device` with an internal UUID, `PENDING_ENROLLMENT`, and `AUDIT` mode. MAC normalization means `00-11-22-33-44-55` and `001122334455` cannot become separate devices.
 
-Create and publish a policy, then assign its version to this device. Publication needs the `approve` permission and recent MFA. Registration alone does not assign a policy. The agent waits if it has no assignment, so do this before expecting a complete inventory report.
+Create and publish a policy, then assign its version to this device. Publication needs the `approve` permission; recent MFA is checked when explicitly enabled. Registration alone does not assign a policy. The agent waits if it has no assignment, so do this before expecting a complete inventory report.
 
 Generate a 15-minute enrollment token from the device page. The database keeps its SHA-256 hash rather than the plaintext token. Transfer the token, server address, trusted policy public key, MAC and code-signing publisher pin through the protected provisioning file described in [enrollment](../enrollment.md).
 

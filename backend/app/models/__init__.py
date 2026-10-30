@@ -1,6 +1,16 @@
 from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import String, Text, DateTime, ForeignKey, UniqueConstraint, JSON, Integer, Boolean, Index
+from sqlalchemy import (
+    String,
+    Text,
+    DateTime,
+    ForeignKey,
+    UniqueConstraint,
+    JSON,
+    Integer,
+    Boolean,
+    Index,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base, utcnow
 
@@ -45,12 +55,16 @@ class Device(Record, Base):
     device_class: Mapped[str] = mapped_column(String(24), default="STANDARD")
     primary_mac: Mapped[str] = mapped_column(String(17), unique=True)
     mode: Mapped[str] = mapped_column(String(30), default="AUDIT")
-    state: Mapped[str] = mapped_column(String(30), default="PENDING_ENROLLMENT", index=True)
+    state: Mapped[str] = mapped_column(
+        String(30), default="PENDING_ENROLLMENT", index=True
+    )
     agent_version: Mapped[str | None] = mapped_column(String(32))
     os_version: Mapped[str | None] = mapped_column(String(256))
     last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime, index=True)
     last_verified: Mapped[datetime | None] = mapped_column(DateTime)
-    policy_version_id: Mapped[str | None] = mapped_column(ForeignKey("policy_versions.id"))
+    policy_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("policy_versions.id")
+    )
     reported_policy_id: Mapped[str | None] = mapped_column(String(36))
     compliance_score: Mapped[int] = mapped_column(Integer, default=0)
     network_state: Mapped[str] = mapped_column(String(32), default="UNKNOWN")
@@ -58,6 +72,17 @@ class Device(Record, Base):
     network_evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     revision: Mapped[int] = mapped_column(Integer, default=0)
+    owner_name: Mapped[str | None] = mapped_column(String(256), index=True)
+    owner_rank: Mapped[str | None] = mapped_column(String(128), index=True)
+    owner_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    owner_account: Mapped[str | None] = mapped_column(String(256))
+    identity_status: Mapped[str] = mapped_column(String(24), default="PENDING")
+    last_user_account: Mapped[str | None] = mapped_column(String(256))
+    last_user_sid: Mapped[str | None] = mapped_column(String(184))
+    last_user_seen: Mapped[datetime | None] = mapped_column(DateTime)
+    network_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("network_profiles.id"), index=True
+    )
 
 
 class NetworkInterface(Record, Base):
@@ -96,11 +121,14 @@ class RequestNonce(Base):
 class DeviceGroup(Record, Base):
     __tablename__ = "device_groups"
     name: Mapped[str] = mapped_column(String(128), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
 
 
 class GroupMember(Base):
     __tablename__ = "group_members"
-    group_id: Mapped[str] = mapped_column(ForeignKey("device_groups.id"), primary_key=True)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("device_groups.id"), primary_key=True
+    )
     device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), primary_key=True)
 
 
@@ -164,7 +192,9 @@ class ComplianceReport(Record, Base):
 
 class ComplianceCheck(Record, Base):
     __tablename__ = "compliance_checks"
-    report_id: Mapped[str] = mapped_column(ForeignKey("compliance_reports.id", ondelete="CASCADE"), index=True)
+    report_id: Mapped[str] = mapped_column(
+        ForeignKey("compliance_reports.id", ondelete="CASCADE"), index=True
+    )
     check_id: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(12))
     severity: Mapped[str] = mapped_column(String(12))
@@ -191,6 +221,21 @@ class Router(Record, Base):
     write_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     generation: Mapped[int] = mapped_column(Integer, default=0)
     lock_until: Mapped[datetime | None] = mapped_column(DateTime)
+    role: Mapped[str] = mapped_column(String(24), default="ACCESS_POINT")
+    transport: Mapped[str] = mapped_column(String(16), default="REST")
+    protected: Mapped[bool] = mapped_column(Boolean, default=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    inventory: Mapped[dict] = mapped_column(JSON, default=dict)
+    health: Mapped[dict] = mapped_column(JSON, default=dict)
+    last_health: Mapped[datetime | None] = mapped_column(DateTime)
+    last_inventory: Mapped[datetime | None] = mapped_column(DateTime)
+    last_reboot: Mapped[datetime | None] = mapped_column(DateTime)
+    desired_config: Mapped[dict] = mapped_column(JSON, default=dict)
+    recovery_policy: Mapped[dict] = mapped_column(JSON, default=dict)
+    config_hash: Mapped[str | None] = mapped_column(String(64))
+    ssh_host_key: Mapped[str | None] = mapped_column(Text)
+    # Set for CAPsMAN access points: observed through this controller, never contacted directly.
+    controller_id: Mapped[str | None] = mapped_column(ForeignKey("routers.id"), index=True)
 
 
 class AccessPoint(Record, Base):
@@ -221,7 +266,10 @@ class DhcpReservation(Record, Base):
     address: Mapped[str] = mapped_column(String(48), unique=True)
     mac: Mapped[str] = mapped_column(String(17))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (UniqueConstraint("subnet_id", "address"), UniqueConstraint("subnet_id", "mac"))
+    __table_args__ = (
+        UniqueConstraint("subnet_id", "address"),
+        UniqueConstraint("subnet_id", "mac"),
+    )
 
 
 class NetworkAccessRule(Record, Base):
@@ -365,3 +413,166 @@ class SshSession(Record, Base):
     maintenance_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     reason: Mapped[str] = mapped_column(Text)
     bytes_recorded: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class UserIdentity(Record, Base):
+    __tablename__ = "user_identities"
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    windows_sid: Mapped[str] = mapped_column(String(184))
+    windows_account: Mapped[str] = mapped_column(String(256))
+    full_name: Mapped[str] = mapped_column(String(256), index=True)
+    military_rank: Mapped[str | None] = mapped_column(String(128), index=True)
+    verified_by: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (UniqueConstraint("device_id", "windows_sid"),)
+
+
+class OwnerAssignment(Record, Base):
+    __tablename__ = "owner_assignments"
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    full_name: Mapped[str | None] = mapped_column(String(256))
+    military_rank: Mapped[str | None] = mapped_column(String(128))
+    windows_account: Mapped[str | None] = mapped_column(String(256))
+    verified: Mapped[bool] = mapped_column(Boolean)
+    author_id: Mapped[str] = mapped_column(ForeignKey("administrators.id"))
+    reason: Mapped[str] = mapped_column(Text)
+
+
+class ApGroup(Record, Base):
+    __tablename__ = "ap_groups"
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    template: Mapped[dict] = mapped_column(JSON, default=dict)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ApGroupMember(Base):
+    __tablename__ = "ap_group_members"
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("ap_groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    router_id: Mapped[str] = mapped_column(ForeignKey("routers.id"), primary_key=True)
+
+
+class RouterTelemetry(Record, Base):
+    __tablename__ = "router_telemetry"
+    router_id: Mapped[str] = mapped_column(ForeignKey("routers.id"), index=True)
+    metrics: Mapped[dict] = mapped_column(JSON)
+    clients: Mapped[list] = mapped_column(JSON, default=list)
+    facts: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class ClientObservation(Record, Base):
+    __tablename__ = "client_observations"
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    sequence: Mapped[str] = mapped_column(String(64))
+    data: Mapped[dict] = mapped_column(JSON)
+    __table_args__ = (UniqueConstraint("device_id", "sequence"),)
+
+
+class NetworkBatch(Record, Base):
+    __tablename__ = "network_batches"
+    author_id: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    kind: Mapped[str] = mapped_column(String(32), default="NETWORK")
+    state: Mapped[str] = mapped_column(String(32), default="PREVIEW", index=True)
+    operation: Mapped[str] = mapped_column(String(40))
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    batch_size: Mapped[int] = mapped_column(Integer, default=1)
+    stop_on_failure: Mapped[bool] = mapped_column(Boolean, default=True)
+    not_before: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    window_end: Mapped[datetime | None] = mapped_column(DateTime)
+    reason: Mapped[str] = mapped_column(Text)
+    automatic: Mapped[bool] = mapped_column(Boolean, default=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class OperationTarget(Record, Base):
+    __tablename__ = "operation_targets"
+    batch_id: Mapped[str] = mapped_column(ForeignKey("network_batches.id"), index=True)
+    router_id: Mapped[str | None] = mapped_column(ForeignKey("routers.id"), index=True)
+    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="PENDING", index=True)
+    preview: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime)
+    __table_args__ = (
+        UniqueConstraint("batch_id", "router_id"),
+        UniqueConstraint("batch_id", "device_id"),
+    )
+
+
+class ConfigurationBackup(Record, Base):
+    __tablename__ = "configuration_backups"
+    router_id: Mapped[str] = mapped_column(ForeignKey("routers.id"), index=True)
+    author_id: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    kind: Mapped[str] = mapped_column(String(24))
+    encrypted_content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+
+class Incident(Record, Base):
+    __tablename__ = "incidents"
+    dedup_key: Mapped[str] = mapped_column(String(256), unique=True)
+    title_key: Mapped[str] = mapped_column(String(128))
+    cause_key: Mapped[str] = mapped_column(String(128))
+    confidence: Mapped[str] = mapped_column(String(16))
+    severity: Mapped[str] = mapped_column(String(16))
+    state: Mapped[str] = mapped_column(String(24), default="OPEN", index=True)
+    router_ids: Mapped[list] = mapped_column(JSON, default=list)
+    device_ids: Mapped[list] = mapped_column(JSON, default=list)
+    facts: Mapped[list] = mapped_column(JSON, default=list)
+    recommendations: Mapped[list] = mapped_column(JSON, default=list)
+    last_observed: Mapped[datetime] = mapped_column(
+        DateTime, default=utcnow, index=True
+    )
+    acknowledged_by: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    assigned_to: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class IncidentHistory(Record, Base):
+    __tablename__ = "incident_history"
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(32))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class MaintenanceWindow(Record, Base):
+    __tablename__ = "maintenance_windows"
+    name: Mapped[str] = mapped_column(String(128))
+    starts_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    router_ids: Mapped[list] = mapped_column(JSON, default=list)
+    device_ids: Mapped[list] = mapped_column(JSON, default=list)
+    author_id: Mapped[str] = mapped_column(ForeignKey("administrators.id"))
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON)
+
+
+class NetworkProfile(Record, Base):
+    __tablename__ = "network_profiles"
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    subnet_id: Mapped[str] = mapped_column(ForeignKey("subnets.id"))
+    ap_group_id: Mapped[str] = mapped_column(ForeignKey("ap_groups.id"))
+    ssid: Mapped[str] = mapped_column(String(128))
+    vlan_id: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class NetworkEndpointLabel(Record, Base):
+    """Administrator description of an observed address. Descriptive only: never trust, admission or exemption."""
+    __tablename__ = "network_endpoint_labels"
+    mac: Mapped[str] = mapped_column(String(17), unique=True)
+    category: Mapped[str] = mapped_column(String(24), default="UNKNOWN")
+    label: Mapped[str] = mapped_column(String(128), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str | None] = mapped_column(String(36))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime)

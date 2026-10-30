@@ -26,14 +26,18 @@ class DeviceCreate(BaseModel):
 
 @router.get("")
 def list_devices(request: Request, q: str = "", device_class: str | None = None, offset: int = 0, limit: int = 50,
-                 sort: str = "hostname", descending: bool = False,
+                 sort: str = "hostname", descending: bool = False, owner_rank: str | None = None, group_id: str | None = None,
                  admin=Depends(require("read")), db=Depends(db_session)):
     limit, offset = min(max(limit, 1), 200), max(offset, 0)
     query = select(Device)
     if q:
-        query = query.where(Device.hostname.ilike(f"%{q[:128]}%") | Device.primary_mac.ilike(f"%{q[:128]}%"))
+        query = query.where(Device.hostname.ilike(f"%{q[:128]}%") | Device.primary_mac.ilike(f"%{q[:128]}%") | Device.owner_name.ilike(f"%{q[:128]}%") | Device.last_user_account.ilike(f"%{q[:128]}%"))
     if device_class:
         query = query.where(Device.device_class == device_class)
+    if owner_rank is not None:
+        query = query.where(Device.owner_rank == owner_rank)
+    if group_id:
+        query = query.where(Device.id.in_(select(GroupMember.device_id).where(GroupMember.group_id == group_id)))
     count = db.scalar(select(func.count()).select_from(query.subquery()))
     column = {"hostname": Device.hostname, "primary_mac": Device.primary_mac, "last_heartbeat": Device.last_heartbeat,
               "device_class": Device.device_class, "compliance_score": Device.compliance_score}.get(sort)

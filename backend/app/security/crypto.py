@@ -66,7 +66,7 @@ def initialize_keys(directory: Path):
         (directory / f"{name}.pub").write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
         if name == "ca":
             now = utcnow().replace(tzinfo=timezone.utc)
-            subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Lantern Device CA")])
+            subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Suro Device CA")])
             cert = (x509.CertificateBuilder().subject_name(subject).issuer_name(subject)
                     .public_key(key.public_key()).serial_number(x509.random_serial_number())
                     .not_valid_before(now).not_valid_after(now + timedelta(days=3650))

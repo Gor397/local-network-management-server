@@ -43,7 +43,7 @@ Keep the file readable only by the installing administrator and SYSTEM, transfer
 Run from an elevated Windows PowerShell session:
 
 ```powershell
-.\agent\installer\Install-Agent.ps1 -MsiPath C:\Staging\LanternAgent.msi -ProvisioningFile C:\SecureStaging\device.json
+.\agent\installer\Install-Agent.ps1 -MsiPath C:\Staging\SuroAgent.msi -ProvisioningFile C:\SecureStaging\device.json
 ```
 
 The wrapper checks Windows/build privileges and the MSI publisher, protects installation/state files, configures SCM permissions and starts certificate enrollment. In the dashboard, inspect the pending CSR fingerprint and approve it. The enrollment process retries the same CSR until approval or token expiry.
@@ -66,3 +66,25 @@ Use a signed MSI from the pinned publisher and preserve `%ProgramData%\Lantern`,
 For removal, revoke the device certificate in the server, separately revoke/review network authorization, then use authorized local administrative uninstall tooling. The supplied uninstall script retains local state/identity for recovery. Certificate revocation alone does not disconnect an existing Wi-Fi client.
 
 See [recovery](recovery.md) for break-glass administration. Standard-user service/file protection does not protect against a local administrator, SYSTEM compromise or offline disk access.
+
+## User identification after enrollment
+
+The MSI includes `IdentityUI/SuroIdentity.exe`, a separate Armenian-first user-session program with Russian/English options. It starts through the machine Run registration at interactive login; the installation wrapper also schedules an initial run when an interactive user exists. It never displays UI from the Windows Service.
+
+Full name is required and military rank is optional. The service binds submissions to the local pipe client's real Windows SID/account, saves an outbox under protected `%ProgramData%\Lantern`, and uploads signed reports on reconnection. Reports are user-reported; an administrator separately assigns/verifies an owner. A completed SID is not prompted repeatedly. No logged-in user means pending identification.
+
+Use [the developer sequence diagram](developers/suro-expansion.md) for IPC details. Validate standard-user pipe access, SCM PID authentication, MSI directory permissions, logoff/logon, offline retries, and direct upgrades in Windows VMs before distribution. Existing Windows identity/SCM/path names remain unchanged.
+
+## What onboarding can and cannot prove
+
+| State in Suro | What the server actually knows |
+|---|---|
+| `NOT_REGISTERED` (Network inventory) | A router reported this MAC/IP; nothing about the software on it |
+| `REGISTERED_NOT_ENROLLED` | An administrator registered the device; no certificate has been issued |
+| `ENROLLED_NO_HEARTBEAT` | A CSR made with the machine's non-exportable key was approved |
+| `AGENT_HEALTHY` / `AGENT_STALE` | Signed heartbeats from that key arrive within / outside the deadline |
+| `EXEMPT_UNMANAGED` | A developer/admin exception (MAC-based, so spoofable) |
+
+Downloading an installer or visiting a page proves nothing, and Suro never authorizes a device on that basis. A web page cannot install or run an `.exe` without the user acting and Windows asking for elevation. Unmanaged Windows computers therefore cannot be onboarded silently. The closest realistic flow is a locally hosted, signed MSI plus a short-lived enrollment token, with the administrator approving the CSR. A captive-portal or walled-garden page (MikroTik HotSpot) that offers the installer before granting access is **not implemented**. It would change live HotSpot, DHCP and firewall configuration, so it needs the real RouterOS topology and a separately approved migration plan first.
+
+Printers, phones, Linux machines and network equipment cannot run the agent. Classify them in **Network inventory** and keep any enforcement scoped to managed Windows groups, so that infrastructure is never blocked.

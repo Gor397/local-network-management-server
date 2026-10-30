@@ -1,15 +1,21 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Lantern Network Policy Client" Manufacturer="Lantern Project" Version="0.1.0" UpgradeCode="2AE29E8A-1FD2-40A3-9A6C-E12704367E93" Scope="perMachine" Language="1033">
-    <MajorUpgrade DowngradeErrorMessage="A newer Lantern agent is already installed."/>
+  <Package Name="Suro Network Policy Client" Manufacturer="Suro Project" Version="$(var.ProductVersion)" UpgradeCode="2AE29E8A-1FD2-40A3-9A6C-E12704367E93" Scope="perMachine" Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer Suro agent is already installed."/>
     <MediaTemplate EmbedCab="yes"/>
     <Launch Condition="Privileged AND VersionNT64" Message="A 64-bit Windows system and administrator privileges are required."/>
     <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="Lantern Policy Agent">
       <Component Id="AgentService" Guid="D5473FD1-A7F1-4903-A814-25FB98778A02">
+        <CreateFolder>
+          <!-- Locale-independent SIDs: only executables are readable by ordinary users.
+               Device keys, identity outboxes and configuration remain in protected ProgramData. -->
+          <PermissionEx Sddl="D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"/>
+        </CreateFolder>
         <File Id="AgentExecutable" Source="$(var.PublishDir)\NetworkPolicyClient.exe" KeyPath="yes"/>
-        <ServiceInstall Id="AgentServiceInstall" Name="LocalNetworkPolicyAgent" DisplayName="Lantern Network Policy Agent" Description="Audits and reconciles approved local network policies." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem"/>
+        <ServiceInstall Id="AgentServiceInstall" Name="LocalNetworkPolicyAgent" DisplayName="Suro Network Policy Agent" Description="Audits and reconciles approved local network policies." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem"/>
         <ServiceControl Id="AgentServiceControl" Name="LocalNetworkPolicyAgent" Stop="both" Remove="uninstall" Wait="yes"/>
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="SuroIdentification" Type="string" Value="&quot;[INSTALLFOLDER]IdentityUI\SuroIdentity.exe&quot;"/>
       </Component>
     </Directory></StandardDirectory>
-    <Feature Id="MainFeature" Title="Lantern Agent" Level="1"><ComponentRef Id="AgentService"/><ComponentGroupRef Id="PublishedFiles"/></Feature>
+    <Feature Id="MainFeature" Title="Suro Agent" Level="1"><ComponentRef Id="AgentService"/><ComponentGroupRef Id="PublishedFiles"/></Feature>
   </Package>
 </Wix>

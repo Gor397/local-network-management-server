@@ -3,6 +3,10 @@ from app.models import PolicyOverride, GroupMember
 from app.policies.schema import merge_layers
 
 
+class PolicyConflict(ValueError):
+    pass
+
+
 def resolve(db, policy_id, baseline, device):
     groups = set(db.scalars(select(GroupMember.group_id).where(GroupMember.device_id == device.id)))
     layers = []
@@ -12,4 +16,12 @@ def resolve(db, policy_id, baseline, device):
         if applies:
             layers.append({"id": layer.id, "priority": layer.priority, "controls": layer.controls,
                            "approved_relaxation": layer.approved_relaxation})
+    resolutions = {key for l in layers if l["priority"] == 30 for key in l["controls"]}
+    grouped = {}
+    for layer in layers:
+        if layer["priority"] == 20:
+            for key, value in layer["controls"].items():
+                if key in grouped and grouped[key] != value and key not in resolutions:
+                    raise PolicyConflict("policy.group_conflict:" + key)
+                grouped[key] = value
     return merge_layers(baseline, layers)

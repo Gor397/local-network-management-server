@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./data/**)",
+      "Read(./secrets/**)",
+      "Bash(ip route add:*)",
+      "Bash(ip route del:*)",
+      "Bash(ip route replace:*)",
+      "Bash(ip addr add:*)",
+      "Bash(ip addr del:*)",
+      "Bash(ip link set:*)",
+      "Bash(sysctl -w:*)",
+      "Bash(iptables:*)",
+      "Bash(nft:*)",
+      "Bash(tailscale up:*)",
+      "Bash(tailscale set:*)"
+    ],
+    "ask": [
+      "Bash(sudo:*)",
+      "Bash(nmcli:*)",
+      "Bash(docker compose:*)",
+      "Bash(scripts/bootstrap.sh:*)",
+      "Bash(scripts/restore.sh:*)",
+      "Bash(scripts/update.sh:*)",
+      "Bash(scripts/rollback.sh:*)",
+      "Bash(make prod-:*)",
+      "Bash(make offline-:*)"
+    ]
+  }
+}

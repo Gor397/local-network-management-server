@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.config import Settings
 from app.db import database
 from app.security.crypto import Vault
-from app.api import auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory, credentials
+from app.api import auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory, credentials, admission, onboarding
 
 log = logging.getLogger("lantern")
 
@@ -31,7 +31,7 @@ def create_app(settings=None):
     async def boundary(request: Request, call_next):
         started = time.monotonic()
         ip = request.client.host if request.client else "unknown"
-        category = "login" if request.url.path.endswith(("/login", "/enroll")) else "api"
+        category = "login" if request.url.path.endswith(("/login", "/enroll", "/onboarding-request")) else "api"
         key = (ip, category)
         now = time.monotonic()
         count, until = buckets.get(key, (0, now + 60))
@@ -92,8 +92,10 @@ def create_app(settings=None):
     async def policy_conflict(request, exc):
         return JSONResponse({"error": {"code": "policy.group_conflict", "control": str(exc).split(":", 1)[-1]}}, 409)
 
-    for module in (auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory, credentials):
+    for module in (auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory, credentials, admission):
         app.include_router(module.router, prefix="/api/v1")
+
+    app.include_router(onboarding.router)
 
     @app.get("/healthz")
     def healthz():

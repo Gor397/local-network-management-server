@@ -45,6 +45,9 @@ Review these values before startup:
 | `LAN_BIND_IP` | `192.168.88.10` | Host interface on which HTTPS listens |
 | `PUBLIC_ORIGIN` | `https://192.168.88.10` | Exact browser origin, including nondefault port if used |
 | `TRUSTED_HOSTS` | `192.168.88.10,management.local,localhost,127.0.0.1` | Accepted HTTP hostnames |
+| `MANAGEMENT_ADDRESS` | `192.168.88.10` | Suro server LAN IPv4 that computers under the [client requirement](developers/client-admission.md) can always reach; defaults to the IP in `PUBLIC_ORIGIN` |
+| `ONBOARDING_HTTP_BIND` | `127.0.0.1:8080` | Plain-HTTP onboarding page; set to `<LAN IP>:80` only when piloting the client requirement |
+| `TRUSTED_PROXY_NETWORKS` | `127.0.0.1/32,172.16.0.0/12` | Proxies allowed to state the browser address for `/onboard/status` |
 | `ROUTER_ALLOWED_NETWORKS` | `192.168.88.0/24` | Permitted management destinations |
 | `SSH_ALLOWED_NETWORKS` | `192.168.88.0/24` | Permitted endpoint SSH destinations |
 | `OPERATION_MODE` | `read_only` | Server-enforced safety mode: `read_only`, `dry_run`, `controlled_test`, `production` |

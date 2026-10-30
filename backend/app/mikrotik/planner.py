@@ -82,6 +82,9 @@ def release_plan(device, snapshot):
 
 
 def verify_operations(operations, after):
+    from app.services.admission_gate import placement_verified
+    if not placement_verified(operations, after):
+        return False
     for op in operations:
         rows = after.get(op["path"], [])
         if op["method"] == "DELETE":

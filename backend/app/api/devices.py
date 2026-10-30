@@ -17,7 +17,7 @@ router = APIRouter(prefix="/devices", tags=["devices"])
 class DeviceCreate(BaseModel):
     hostname: str = Field(min_length=1, max_length=128)
     primary_mac: str
-    device_class: Literal["STANDARD", "ADMINISTRATOR", "DEVELOPER"] = "STANDARD"
+    device_class: Literal["STANDARD", "ADMINISTRATOR", "DEVELOPER", "INFRASTRUCTURE", "OTHER"] = "STANDARD"
     @field_validator("primary_mac")
     @classmethod
     def mac(cls, value):
@@ -67,7 +67,7 @@ def detail(device_id: str, request: Request, admin=Depends(require("read")), db=
 class DevicePatch(BaseModel):
     hostname: str | None = Field(default=None, min_length=1, max_length=128)
     mode: Literal["AUDIT", "PREVIEW", "APPROVED_REMEDIATION", "CONTINUOUS", "MAINTENANCE"] | None = None
-    device_class: Literal["STANDARD", "ADMINISTRATOR"] | None = None
+    device_class: Literal["STANDARD", "ADMINISTRATOR", "INFRASTRUCTURE", "OTHER"] | None = None
     revision: int
     reason: str = Field(min_length=5, max_length=2000)
 

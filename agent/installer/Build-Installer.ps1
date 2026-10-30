@@ -1,5 +1,7 @@
 #Requires -Version 7
-param([string]$SigningCertificateThumbprint, [string]$TimestampUrl, [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version='0.1.0')
+param([string]$SigningCertificateThumbprint, [string]$TimestampUrl, [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version='0.1.0',
+      # Optional site.json for the onboarding-page installer (see agent/installer/site.example.json). Never a token.
+      [string]$SiteFile)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $publish = Join-Path $root 'publish'
@@ -7,6 +9,14 @@ dotnet publish "$root\..\src\NetworkPolicyClient.csproj" -c Release -p:Version=$
 if ($LASTEXITCODE -ne 0) { throw 'Agent publish failed' }
 dotnet publish "$root\..\ui\Suro.Identity.UI.csproj" -c Release -p:Version=$Version -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o "$publish\IdentityUI"
 if ($LASTEXITCODE -ne 0) { throw 'Identity UI publish failed' }
+if ($SiteFile) {
+    $site = Get-Content -LiteralPath $SiteFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    $allowed = @('server','signing_public_key','agent_publisher_thumbprint','server_certificate_sha256','ui_language')
+    $extra = @($site.PSObject.Properties.Name | Where-Object { $_ -notin $allowed })
+    if ($extra.Count) { throw "site.json may contain only $($allowed -join ', '); found $($extra -join ', ')" }
+    if (([uri]$site.server).Scheme -ne 'https' -or -not $site.signing_public_key -or -not $site.agent_publisher_thumbprint) { throw 'Incomplete site.json' }
+    Copy-Item -LiteralPath $SiteFile -Destination (Join-Path $publish 'site.json') -Force
+}
 if (-not $SigningCertificateThumbprint) { throw 'Production installers require a trusted code-signing certificate in the build account certificate store' }
 $cert = Get-Item "Cert:\CurrentUser\My\$SigningCertificateThumbprint"
 $signingOptions = @{ Certificate=$cert; HashAlgorithm='SHA256' }

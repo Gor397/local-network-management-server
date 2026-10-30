@@ -168,6 +168,10 @@
     "policy-advanced": {
       "title": "Policy: advanced",
       "body": "Choose which requirements count for compliance and whether the router should isolate noncompliant or silent computers. Isolation can cut a computer off from the network; enable it only after testing. Core security checks always count."
+    },
+    "client-admission": {
+      "title": "Suro Client requirement",
+      "body": "A computer under this requirement gets normal network access only while its enrolled Suro Client keeps reporting. The router enforces it, so stopping or uninstalling the client loses access after the timeout and grace period. Start with one laptop: add its MAC, prepare the gate and read the router facts and warnings. Then apply it, open client installation, approve the enrollment request on the device page, and watch Network access change to Authorized. To undo, switch the requirement off (access returns at once) and remove the gate. If Suro is down, the page shows router commands that remove only this laptop's rules. Developer devices can be exempted by an administrator."
     }
   }
 }

@@ -22,7 +22,7 @@ public sealed class AgentTransport : IDisposable
                           .OfType<X509Certificate2>().Single(c => c.HasPrivateKey);
         privateKey = certificate.GetRSAPrivateKey() ?? throw new CryptographicException("RSA device key missing.");
         fingerprint = Convert.ToHexString(SHA256.HashData(certificate.RawData)).ToLowerInvariant();
-        client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+        client = new HttpClient(Tls.Handler(config))
         { BaseAddress = new Uri(config.Server.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(45) };
     }
 

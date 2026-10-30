@@ -1,7 +1,7 @@
 import csv
 import io
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from app.auth.dependencies import db_session, require, agent_identity, audit
 from app.db import utcnow
@@ -14,16 +14,29 @@ router = APIRouter(tags=["identity"])
 class UserReport(BaseModel):
     windows_sid: str = Field(pattern=r"^S-1-5-[0-9-]{1,160}$")
     windows_account: str = Field(min_length=1, max_length=256)
-    full_name: str = Field(min_length=2, max_length=256)
+    # Clients from 0.3 send first and last name separately; older ones send only full_name.
+    full_name: str | None = Field(default=None, min_length=2, max_length=256)
+    first_name: str | None = Field(default=None, min_length=1, max_length=128)
+    last_name: str | None = Field(default=None, min_length=1, max_length=128)
     military_rank: str | None = Field(default=None, max_length=128)
     no_military_rank: bool = False
 
-    @field_validator("full_name", "military_rank", "windows_account")
+    @field_validator("full_name", "first_name", "last_name", "military_rank", "windows_account")
     @classmethod
     def clean(cls, value):
         if value is not None and any(ord(c) < 32 for c in value):
             raise ValueError("identity.invalid_text")
         return value.strip() if value else value
+
+    @model_validator(mode="after")
+    def names(self):
+        if bool(self.first_name) != bool(self.last_name):
+            raise ValueError("identity.first_and_last_name_required")
+        if self.first_name:
+            self.full_name = f"{self.first_name} {self.last_name}"
+        if not self.full_name or len(self.full_name) < 2:
+            raise ValueError("identity.name_required")
+        return self
 
 
 @router.post("/agent/identity")
@@ -44,7 +57,10 @@ def report(body: UserReport, d=Depends(agent_identity), db=Depends(db_session)):
     changed = identity.full_name != body.full_name or identity.military_rank != (
         None if body.no_military_rank else body.military_rank
     )
+    changed |= (identity.first_name, identity.last_name) != (body.first_name, body.last_name) and body.first_name is not None
     identity.windows_account, identity.full_name = body.windows_account, body.full_name
+    if body.first_name:
+        identity.first_name, identity.last_name = body.first_name, body.last_name
     identity.military_rank = None if body.no_military_rank else body.military_rank
     identity.updated_at = utcnow()
     if changed:
@@ -94,6 +110,8 @@ def identities(device_id: str, admin=Depends(require("read")), db=Depends(db_ses
 
 class OwnerEdit(BaseModel):
     full_name: str | None = Field(default=None, max_length=256)
+    first_name: str | None = Field(default=None, max_length=128)
+    last_name: str | None = Field(default=None, max_length=128)
     military_rank: str | None = Field(default=None, max_length=128)
     windows_account: str | None = Field(default=None, max_length=256)
     verified: bool = False
@@ -143,9 +161,13 @@ def correct_identity(
     db=Depends(db_session),
 ):
     u = db.get(UserIdentity, identity_id)
+    if body.first_name and body.last_name:
+        body.full_name = f"{body.first_name.strip()} {body.last_name.strip()}"
     if not u or u.device_id != device_id or not body.full_name:
         raise HTTPException(404, "identity.not_found")
     u.full_name, u.military_rank = body.full_name, body.military_rank
+    if body.first_name and body.last_name:
+        u.first_name, u.last_name = body.first_name.strip(), body.last_name.strip()
     u.verified_by, u.updated_at = admin.id if body.verified else None, utcnow()
     audit(
         db,

@@ -59,13 +59,15 @@ public sealed class IdentityPipeService(LocalState state, AgentTransport transpo
                 }
                 else if(operation=="submit")
                 {
-                    string name=input.RootElement.GetProperty("full_name").GetString()?.Trim()??"";
+                    string first=input.RootElement.TryGetProperty("first_name",out var f)?f.GetString()?.Trim()??"":"";
+                    string last=input.RootElement.TryGetProperty("last_name",out var l)?l.GetString()?.Trim()??"":"";
                     string? rank=input.RootElement.TryGetProperty("military_rank",out var field)?field.GetString()?.Trim():null;
                     bool noRank=input.RootElement.TryGetProperty("no_military_rank",out var absent)&&absent.GetBoolean();
-                    if(name.Length<2||name.Length>256||name.Any(char.IsControl)||(rank?.Length??0)>128||(rank?.Any(char.IsControl)??false))throw new InvalidDataException("identity.invalid_text");
+                    if(rank?.Length==0)rank=null;
+                    if(first.Length is <1 or >128||last.Length is <1 or >128||first.Any(char.IsControl)||last.Any(char.IsControl)||(rank?.Length??0)>128||(rank?.Any(char.IsControl)??false))throw new InvalidDataException("identity.invalid_text");
                     // The service obtains account/SID from the authenticated pipe token, never from UI JSON.
-                    await state.Save(filename,JsonSerializer.Serialize(new {windows_sid=sid,windows_account=account,full_name=name,
-                        military_rank=noRank?null:rank,no_military_rank=noRank},Json.Options));
+                    await state.Save(filename,JsonSerializer.Serialize(new {windows_sid=sid,windows_account=account,first_name=first,last_name=last,
+                        military_rank=noRank?null:rank,no_military_rank=noRank||rank is null},Json.Options));
                     File.Delete(state.PathFor(filename)+".sent");
                     result=new {accepted=true,status="USER_REPORTED_PENDING_SYNC"};
                 }

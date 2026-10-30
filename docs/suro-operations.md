@@ -24,6 +24,10 @@ Rebranding does not require recreating the database, changing Compose project na
 
 Full-network enforcement is never switched on automatically. Each stage change is an edit to `.env` and a restart, made by an administrator.
 
+## Suro Client requirement
+
+Network → **Suro Client requirement** controls whether computers need a running Suro Client for normal network access. It starts **Disabled**. Choose **Pilot devices only**, add one laptop by MAC, prepare and apply its router gate, and follow the [pilot steps](developers/client-admission.md#testing-one-laptop). The table shows for every computer whether the client is installed, whether its agent is online and whether the router has confirmed its access. To undo, use **Stop requiring the client**, then **Remove gate**.
+
 ## Policies
 
 Policies → **New policy** → choose a template → change settings with the switches and fields → **Save draft**. Nothing reaches computers until **Review and publish**, which lists every changed setting, how risky it is and how many computers it affects. Then open **Assign**, choose computers, Windows computer groups or all managed computers, review the counts and apply. **Compliance** shows what computers actually reported; click a computer to see which requirements are missing and how to fix them. **Versions** compares versions and restores an older one into the draft.

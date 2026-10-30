@@ -13,6 +13,7 @@ export const helpByFeature: Record<string, HelpId> = {
   settings: "getting-started",
   devices: "devices",
   explorer: "network-explorer",
+  "adm.title": "client-admission",
   revealPassword: "admin-credentials",
   retireLegacyTask: "legacy-startup-task",
   replaceLegacyRules: "legacy-startup-task",

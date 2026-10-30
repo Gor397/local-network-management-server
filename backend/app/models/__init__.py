@@ -85,6 +85,9 @@ class Device(Record, Base):
     )
     # Policy features the agent reported understanding; decides which settings it is sent.
     agent_features: Mapped[list] = mapped_column(JSON, default=list)
+    # Set only by an administrator (audited); waives the Suro Client requirement, nothing else.
+    admission_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
+    exemption_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class NetworkInterface(Record, Base):
@@ -448,6 +451,8 @@ class UserIdentity(Record, Base):
     windows_sid: Mapped[str] = mapped_column(String(184))
     windows_account: Mapped[str] = mapped_column(String(256))
     full_name: Mapped[str] = mapped_column(String(256), index=True)
+    first_name: Mapped[str | None] = mapped_column(String(128))
+    last_name: Mapped[str | None] = mapped_column(String(128))
     military_rank: Mapped[str | None] = mapped_column(String(128), index=True)
     verified_by: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -603,3 +608,48 @@ class NetworkEndpointLabel(Record, Base):
     note: Mapped[str] = mapped_column(Text, default="")
     updated_by: Mapped[str | None] = mapped_column(String(36))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AdmissionPolicy(Base):
+    """The single network-admission policy. DISABLED until an administrator changes it."""
+    __tablename__ = "admission_policy"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    mode: Mapped[str] = mapped_column(String(16), default="DISABLED")
+    group_ids: Mapped[list] = mapped_column(JSON, default=list)
+    require_enrollment: Mapped[bool] = mapped_column(Boolean, default=True)
+    require_running_agent: Mapped[bool] = mapped_column(Boolean, default=True)
+    require_compliance: Mapped[bool] = mapped_column(Boolean, default=False)
+    exempt_developers: Mapped[bool] = mapped_column(Boolean, default=True)
+    heartbeat_timeout_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    grace_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    auto_revoke: Mapped[bool] = mapped_column(Boolean, default=True)
+    onboarding_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    outage_policy: Mapped[str] = mapped_column(String(8), default="EXPIRE")
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class NetworkAdmission(Record, Base):
+    """One computer's admission gate: static router rules (gate_state) and its timed grant (applied)."""
+    __tablename__ = "network_admissions"
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), unique=True)
+    router_id: Mapped[str | None] = mapped_column(ForeignKey("routers.id"), index=True)
+    source: Mapped[str] = mapped_column(String(16), default="PILOT")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    gate_state: Mapped[str] = mapped_column(String(24), default="NOT_INSTALLED")
+    gate_plan_id: Mapped[str | None] = mapped_column(String(36))
+    desired: Mapped[str] = mapped_column(String(16), default="RESTRICTED")
+    reason: Mapped[str] = mapped_column(String(64), default="admission.not_evaluated")
+    override: Mapped[str | None] = mapped_column(String(16))
+    override_until: Mapped[datetime | None] = mapped_column(DateTime)
+    applied: Mapped[str] = mapped_column(String(16), default="NONE")
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    granted_ip: Mapped[str | None] = mapped_column(String(45))
+    grant_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    reported_ip: Mapped[str | None] = mapped_column(String(45))
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime)
+    onboarding_until: Mapped[datetime | None] = mapped_column(DateTime)
+    error: Mapped[str | None] = mapped_column(String(64))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+

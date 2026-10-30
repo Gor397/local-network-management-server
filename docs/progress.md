@@ -160,3 +160,14 @@ Follow-up: typed maintenance `legacy.retire_startup_task` / `legacy.restore_star
 
 Backend: **136 passed**. Dashboard: **27 passed**, production build passed. `test_mfa_setup_and_replay` failed once and passed on five reruns (TOTP step-boundary timing; auth code unchanged).
 
+### 2026-10-30 mandatory Suro Client pilot (Claude Code)
+
+| Area | Implemented | Automated evidence | Still unverified |
+|---|---|---|---|
+| Admission decision and router gate | Policy (DISABLED by default; GROUPS/ALL refused), per-MAC drop rules placed first, timed `suro-admitted` grants from signed heartbeats confirmed by router ARP/lease, auto-revoke, EXPIRE/HOLD outage policy, overrides, exemptions, feasibility (transport, gateway, same-subnet, infrastructure MAC), owned-only removal and console rollback commands; `GuardedRouter` refuses any other firewall write | `test_client_admission.py` (14) against an in-memory RouterOS through `GuardedRouter` and `execute_plan`; dry-run writes nothing | Any real router: RouterOS 6.49 rule/negation readback format, address-list timeout behavior, CAPsMAN datapath forwarding; the live controller is read-only (plain API) so nothing can be applied there yet |
+| Onboarding | Local trilingual `/onboard` page (Armenian default), signed installer from the package repository, coarse status; tokenless enrollment request only in an admin-opened window, still admin-approved; reset enrollment | Page, installer streaming, window/approval/reset tests | nginx `:8080` listener not started here; captive behavior on Windows |
+| Agent 0.3 | Site configuration in the MSI, optional server-certificate pin, onboarding service mode, registration window with first name/surname/rank, protected `%ProgramData%\Lantern` | None (no .NET SDK here) | Build, MSI, UAC flow, service restart, pinned TLS, ACL/owner check on Windows |
+| Dashboard | Suro Client requirement page, device Network access tab, HY/RU/EN (186 keys, help article) | `admission.test.tsx` (4) | Real browser layout |
+
+Fixed while here: `snapshot_hash` counted firewall byte/packet counters and timed address-list entries, so a write plan could never match a live router. Backend: **151 passed**. Dashboard: **31 passed**.
+

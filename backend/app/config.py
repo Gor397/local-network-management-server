@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://lantern@db/lantern"
     data_dir: Path = Path("data")
     public_origin: str = "https://localhost"
+    # Only the onboarding proxy may state the browser's address (X-Suro-Client-Ip) for /onboard/status.
+    trusted_proxy_networks: str = "127.0.0.1/32,172.16.0.0/12"
+    # The Suro server's LAN IPv4 that gated computers may always reach; defaults to the IP in PUBLIC_ORIGIN.
+    management_address: str = ""
     cookie_secure: bool = True
     trusted_hosts: str = "localhost,127.0.0.1,testserver"
     encryption_key: str

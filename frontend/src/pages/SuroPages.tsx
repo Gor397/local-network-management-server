@@ -21,6 +21,7 @@ import { useT } from "../i18n";
 import { HelpAction, HelpButton } from "../components/Help";
 import type { HelpId } from "../help/catalog";
 import { NetworkExplorer } from "./NetworkExplorer";
+import { AdmissionPage } from "./AdmissionPage";
 
 const fmt = (v: any) =>
   v
@@ -94,6 +95,7 @@ function useTools() {
 const reason: Field = { name: "reason", label: "reason" };
 
 export function SuroPages({ page, id }: { page: string; id?: string }) {
+  if (page === "admission") return <AdmissionPage />;
   if (page === "explorer")
     return (
       <Page title="explorer" help="network-explorer">

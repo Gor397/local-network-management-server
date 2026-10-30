@@ -35,8 +35,11 @@ def redact(value):
 
 
 def snapshot_hash(snapshot):
-    volatile = {"last-seen", "expires-after", "active-address", "active-mac-address", "active-server", "status", "uptime", "rx-byte", "tx-byte"}
-    paths = {p: [{k: v for k, v in row.items() if k not in volatile} for row in rows]
+    # Counters and timed (dynamic) address-list entries change every second without anyone editing anything.
+    volatile = {"last-seen", "expires-after", "active-address", "active-mac-address", "active-server", "status", "uptime",
+                "rx-byte", "tx-byte", "bytes", "packets", "timeout", "creation-time"}
+    paths = {p: [{k: v for k, v in row.items() if k not in volatile} for row in rows
+                 if not (p == "ip/firewall/address-list" and row.get("dynamic") == "true")]
              for p, rows in snapshot.items() if p in ("ip/dhcp-server/lease", "ip/firewall/address-list", "ip/firewall/filter", "ipv6/firewall/filter") or p.endswith("access-list")}
     return digest(canonical(paths))
 
@@ -111,7 +114,7 @@ class RouterOS:
 
     async def apply(self, operation):
         path, method = operation["path"], operation["method"]
-        allowed = {"ip/dhcp-server/lease", "ip/firewall/address-list"} | {v[1] for v in STACKS.values()} | {v[2] for v in STACKS.values()}
+        allowed = {"ip/dhcp-server/lease", "ip/firewall/address-list", "ip/firewall/filter", "ipv6/firewall/filter"} | {v[1] for v in STACKS.values()} | {v[2] for v in STACKS.values()}
         if path not in allowed or method not in ("PUT", "PATCH", "DELETE"):
             raise ValueError("network.operation_not_allowed")
         target = path + ("/" + operation["id"] if operation.get("id") else "")

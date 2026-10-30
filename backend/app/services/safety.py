@@ -94,4 +94,24 @@ class GuardedRouter:
 
     async def apply(self, operation):
         ensure_router_write(self.settings, self.router)
+        firewall_shape(operation)
         return await self.inner.apply(operation)
+
+
+def firewall_shape(operation):
+    """Suro writes firewall rules only to gate one computer: owned admission drop rules and grants, nothing else."""
+    path = operation["path"]
+    if path not in ("ip/firewall/filter", "ipv6/firewall/filter", "ip/firewall/address-list"):
+        return
+    comment = operation.get("owned_comment") if operation["method"] == "DELETE" else operation.get("data", {}).get("comment")
+    if not (str(comment or "").startswith("lantern:") and ":admission:" in str(comment)) and path != "ip/firewall/address-list":
+        raise ValueError("network.firewall_rule_not_owned")
+    if path == "ip/firewall/address-list" and not str(comment or "").startswith("lantern:"):
+        raise ValueError("network.firewall_rule_not_owned")
+    if operation["method"] == "PATCH" and path != "ip/firewall/address-list":
+        raise ValueError("network.firewall_rule_not_owned")
+    data = operation.get("data", {})
+    if operation["method"] == "PUT" and path != "ip/firewall/address-list":
+        # Never an accept/jump rule and never one that could match more than this computer.
+        if data.get("action") != "drop" or not data.get("src-mac-address") or data.get("chain") not in ("forward", "input"):
+            raise ValueError("network.firewall_rule_not_allowed")

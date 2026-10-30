@@ -167,6 +167,8 @@ class NativeRouterOS(RouterOS):
         if operation["path"] not in {
             "ip/dhcp-server/lease",
             "ip/firewall/address-list",
+            "ip/firewall/filter",
+            "ipv6/firewall/filter",
         } | {s[1] for s in STACKS.values()} | {s[2] for s in STACKS.values()}:
             raise ValueError("network.operation_not_allowed")
         verb = {"PUT": "add", "PATCH": "set", "DELETE": "remove"}[operation["method"]]

@@ -79,7 +79,8 @@ services:
     build:
       context: .
       dockerfile: infrastructure/docker/web.Dockerfile
-    ports: ['${LAN_BIND_IP:-127.0.0.1}:${HTTPS_PORT:-443}:8443']
+    # The onboarding page stays on loopback until ONBOARDING_HTTP_BIND (e.g. 192.168.88.10:80) is set.
+    ports: ['${LAN_BIND_IP:-127.0.0.1}:${HTTPS_PORT:-443}:8443', '${ONBOARDING_HTTP_BIND:-127.0.0.1:8080}:8080']
     volumes: [./data/tls:/etc/nginx/tls:ro]
     networks: [control]
     depends_on:

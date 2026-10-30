@@ -93,6 +93,16 @@ def heartbeat(body: Heartbeat, request: Request, d=Depends(agent_identity), db=D
     # Retain a bounded set of metrics, never arbitrary file or user content.
     allowed = {"cpu_percent", "ram_percent", "disk_free_bytes", "uptime_seconds", "last_boot", "ip", "gateway", "signal", "service_running", "critical_errors"}
     metrics = {k: v for k, v in body.health.items() if k in allowed}
+    from app.models import NetworkAdmission
+    admission = db.scalar(select(NetworkAdmission).where(NetworkAdmission.device_id == d.id))
+    if admission and isinstance(metrics.get("ip"), str):
+        from ipaddress import ip_address
+        try:
+            # A claim from the signed agent; the worker grants it only if the router ties it to this MAC.
+            if ip_address(metrics["ip"]).version == 4 and ip_address(metrics["ip"]).is_private:
+                admission.reported_ip, admission.reported_at = metrics["ip"], utcnow()
+        except ValueError:
+            pass
     db.add(HealthReport(device_id=d.id, metrics=metrics))
     jobs = db.scalars(select(BackgroundJob).where(BackgroundJob.device_id == d.id, BackgroundJob.kind == "SYNC", BackgroundJob.status == "PENDING").limit(20)).all()
     for job in jobs:

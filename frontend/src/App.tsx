@@ -56,6 +56,9 @@ import { extraRoutes } from "./routes";
 const PolicyStudio = lazy(() =>
   import("./pages/PolicyStudio").then((module) => ({ default: module.PolicyStudio })),
 );
+const AdmissionDevicePanel = lazy(() =>
+  import("./pages/AdmissionPage").then((module) => ({ default: module.AdmissionDevicePanel })),
+);
 const SuroPages = lazy(() =>
   import("./pages/SuroPages").then((module) => ({ default: module.SuroPages })),
 );
@@ -1093,6 +1096,7 @@ function DeviceDetail({ id }: { id: string }) {
           "compliance",
           "permissions",
           "adminCredentialTab",
+          "adm.networkTab",
           "history",
         ].map((v) => (
           <button
@@ -1487,6 +1491,10 @@ function DeviceDetail({ id }: { id: string }) {
               </div>
             ))}
           </>
+        ) : tab === "adm.networkTab" ? (
+          <Suspense fallback={<p role="status">{t("loading")}</p>}>
+            <AdmissionDevicePanel deviceId={id} />
+          </Suspense>
         ) : tab === "adminCredentialTab" ? (
           <AdminCredentialPanel deviceId={id} />
         ) : tab === "history" ? (

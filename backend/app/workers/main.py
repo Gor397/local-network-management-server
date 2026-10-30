@@ -121,6 +121,9 @@ async def main():
             warm = (utcnow()-started).total_seconds() >= settings.heartbeat_deadline_seconds
             await automatic_enforcement(app, db, warm)
             db.commit()
+            from app.services.admission_sync import reconcile
+            await reconcile(app, db)
+            db.commit()
     while not stop.is_set():
         try:
             from app.services.settings import apply_monitoring

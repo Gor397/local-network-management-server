@@ -26,6 +26,8 @@ All paths below are relative to the repository root. Start with the smallest row
 | Router transport | `backend/app/mikrotik/{connector,native}.py` | HTTPS/API-SSL validation, optional menu probing, redaction, stable hash |
 | Safety modes | `backend/app/services/safety.py` | `OPERATION_MODE`, `GuardedRouter` transport wrapper, endpoint/agent-mode gating |
 | Passive inventory | `backend/app/services/inventory.py`, `api/inventory.py` | Merges stored leases/ARP/Wi-Fi registrations; labels are descriptive only |
+| Network Explorer | `backend/app/services/explorer.py`, `GET /network/explorer` in `api/infrastructure.py` | Registered / Wi-Fi / agent / compliance kept separate; `ApResolver` maps controller radios to CAPs |
+| Local administrator credentials | `backend/app/services/legacy_credentials.py`, `api/credentials.py` | Exact legacy MAC algorithm, candidate MACs, kursant-task findings, audited reveal; see [legacy credentials](legacy-credentials.md) |
 | Router planning | `backend/app/mikrotik/planner.py` | Allocation, lease previews, wireless rejection and readback |
 | Router orchestration | `backend/app/services/network.py` | Durable claim, backup, ownership check, apply, verification |
 | Router-facing admin API | `backend/app/api/mikrotik.py` | Register/discover, subnets, developer MAC workflow, approvals |
@@ -77,6 +79,8 @@ Paths in this table are relative to `agent/src/` unless explicitly stated otherw
 | File | Responsibility |
 |---|---|
 | `frontend/src/pages/SuroPages.tsx` | Infrastructure/groups/owners/incidents/topology/monitoring pages; loaded on demand |
+| `frontend/src/pages/NetworkExplorer.tsx` | AP group → AP → computer tree, status filters and details pane (`#explorer`) |
+| `frontend/src/components/AdminCredential.tsx` | Device page **Local administrator** tab |
 | `frontend/src/help/v1/{en,hy,ru}.json` | Versioned native contextual articles; use stable IDs rather than copying prose |
 | `frontend/src/components/{Help,Navigation}.tsx` | Searchable help, accessible question-mark dialogs and grouped navigation |
 | `frontend/src/App.tsx` | Current page components, forms, modals, auth shell and navigation |

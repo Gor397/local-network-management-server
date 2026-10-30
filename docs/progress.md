@@ -137,3 +137,13 @@ Read-only contact with the live RouterOS 6.49 CAPsMAN controller, approved by th
 
 CAPsMAN follow-up: the 80 CAPs are now listed, groupable access points, observed only through the controller. Connected clients are attributed to their CAP, with DHCP hostname and access-list label. Network inventory lists end devices first. Covered by `test_capsman.py` (4 tests, fixture shaped like the real data). The mapping was checked against the stored real snapshot: 80 CAPs, 92/93 clients attributed. Backend: **116 passed**; dashboard: **17 passed**.
 
+
+### 2026-10-30 legacy credentials and Network Explorer (Claude Code)
+
+| Area | Implemented | Automated evidence | Still unverified |
+|---|---|---|---|
+| Legacy kursant compatibility | Exact port of `Convert-MacToUniquePassword`; candidate-MAC selection matching the script; `AdminCredential` table (migration `0008`); owner-only `credentials` permission; reveal needs recent TOTP regardless of the optional-MFA setting, is audited without the secret and sent `no-store`; random 20-character scheme sealed with the Vault for new computers; detection of the boot-time firewall-reset task, its allowlist versus the server address, the named standard user and WinRE state; device **Local administrator** tab in HY/RU/EN | `test_legacy_credentials.py` (7); 5,004 vectors agree with an independent JavaScript transliteration; migration round-trip | Output of the original PowerShell function (one `-shl` widening assumption; see [legacy credentials](developers/legacy-credentials.md)); `Inspect.ps1` additions not executed on Windows; no agent password set/rotate or task-retirement operation |
+| Network Explorer | `GET /network/explorer`: registered, Wi-Fi association, agent heartbeat, compliance, awaiting enforcement, failed operations and never-seen as separate fields with sources; CAP attribution shared with `/network/clients`; tree page with lazy branches, status filters, search and details pane; help in HY/RU/EN | `test_explorer.py` (3), existing CAPsMAN/client tests; `explorer.test.tsx` (4) including Armenian/Russian rendering | Real 80-CAP data volume; rendered-browser layout check (no headless browser on the development laptop) |
+| Usability CSS | 40px buttons/inputs, larger table/badge/tab text, visible `:focus-visible`, wrapping grids and toolbars | Production build | Visual review of every page in all three locales |
+
+Backend: **126 passed**. Dashboard: **21 passed**, production build passed. Not run: .NET build (no SDK), Windows VM, Compose smoke, browser E2E.

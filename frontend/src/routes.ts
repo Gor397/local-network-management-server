@@ -1,4 +1,5 @@
 export const extraRoutes = [
+  "explorer",
   "connected-clients",
   "network-inventory",
   "network-overview",

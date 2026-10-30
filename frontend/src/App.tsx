@@ -51,6 +51,7 @@ import {
 import { Navigation } from "./components/Navigation";
 import { WorkContext, type ModalSpec, type Field } from "./context";
 import { HelpButton, HelpAction, HelpCenter } from "./components/Help";
+import { AdminCredentialPanel } from "./components/AdminCredential";
 import { extraRoutes } from "./routes";
 const SuroPages = lazy(() =>
   import("./pages/SuroPages").then((module) => ({ default: module.SuroPages })),
@@ -1086,6 +1087,7 @@ function DeviceDetail({ id }: { id: string }) {
           "firewall",
           "compliance",
           "permissions",
+          "adminCredentialTab",
           "history",
         ].map((v) => (
           <button
@@ -1480,6 +1482,8 @@ function DeviceDetail({ id }: { id: string }) {
               </div>
             ))}
           </>
+        ) : tab === "adminCredentialTab" ? (
+          <AdminCredentialPanel deviceId={id} />
         ) : tab === "history" ? (
           <HistoryTable rows={history.data || []} />
         ) : tab === "storage" ? (

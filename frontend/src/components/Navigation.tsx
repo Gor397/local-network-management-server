@@ -36,6 +36,7 @@ const sections: { title: string; links: Link[] }[] = [
   {
     title: "networkSection",
     links: [
+      { route: "explorer", label: "explorer", icon: Network },
       { route: "network-overview", label: "network-overview", icon: Network },
       { route: "access-points", label: "access-points", icon: Wifi },
       { route: "ap-groups", label: "ap-groups", icon: Users },

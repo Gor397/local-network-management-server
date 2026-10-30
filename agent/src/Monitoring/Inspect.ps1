@@ -53,10 +53,26 @@ try {
     Claim 'firewall.managed_rules.valid' $(if ($conflicts.Count) {'FAIL'} else {'UNKNOWN'}) @($conflicts.Name)
 } catch { Claim 'firewall.enabled' 'UNKNOWN' $null @{ error=$_.Exception.GetType().Name } }
 try {
-    $inventory.network_adapters = @(Get-NetAdapter | Where-Object MacAddress | ForEach-Object { @{ id=[string]$_.InterfaceGuid; name=$_.Name; mac=$_.MacAddress.Replace('-',':'); status=[string]$_.Status } })
+    # media_type/description/permanent_mac let the server repeat the legacy script's Wi-Fi MAC selection.
+    $inventory.network_adapters = @(Get-NetAdapter | Where-Object MacAddress | ForEach-Object { @{ id=[string]$_.InterfaceGuid; name=$_.Name; mac=$_.MacAddress.Replace('-',':'); permanent_mac=[string]$_.PermanentAddress; status=[string]$_.Status; media_type=[string]$_.MediaType; description=[string]$_.InterfaceDescription } })
     $ip = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
     $health.ip = [string]$ip.IPv4Address.IPAddress
     $health.gateway = [string]$ip.IPv4DefaultGateway.NextHop
+} catch {}
+try {
+    # Pre-Suro "kursant" scripts: a SYSTEM startup task resets the firewall at every boot. Read-only; see docs/developers/legacy-credentials.md.
+    $legacy = @{ startup_task=$null; persisting_scripts=@(); firewall_rule_addresses=@(); winre_state=$null }
+    $task = Get-ScheduledTask -TaskPath '\Custom Tasks\' -TaskName 'Running_kursant_script_at_every_startup' -ErrorAction SilentlyContinue
+    if ($task) {
+        $arguments = [string]($task.Actions | Select-Object -First 1).Arguments
+        $kursant = if ($arguments -match '-KursantUsername\s+"?([^"\s]+)') { $Matches[1] } else { $null }
+        $legacy.startup_task = @{ state=[string]$task.State; kursant_username=$kursant }
+    }
+    $legacy.persisting_scripts = @(Get-ChildItem -LiteralPath "$env:windir\System32\SystemScripts" -Filter 'kursant_persisting*.ps1' -ErrorAction SilentlyContinue | ForEach-Object Name)
+    $legacy.firewall_rule_addresses = @(Get-NetFirewallRule -DisplayName 'Allow outbound to *' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter | ForEach-Object { [string]($_.RemoteAddress -join ',') })
+    $reagent = "$env:windir\System32\Recovery\ReAgent.xml"
+    if (Test-Path -LiteralPath $reagent) { $legacy.winre_state = [string]([xml](Get-Content -LiteralPath $reagent -Raw)).WindowsRE.InstallState.state }
+    $inventory.legacy = $legacy
 } catch {}
 try {
     $os = Get-CimInstance Win32_OperatingSystem

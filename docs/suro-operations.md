@@ -24,6 +24,16 @@ Rebranding does not require recreating the database, changing Compose project na
 
 Full-network enforcement is never switched on automatically. Each stage change is an edit to `.env` and a restart, made by an administrator.
 
+## Network explorer and computer status
+
+Network → **Network explorer** shows AP groups, their access points and the registered computers on them now. Selecting an access point lists its connected and previously seen computers; selecting a computer links to its full page. The status cards filter the lists.
+
+Four facts are shown separately because they come from different sources: **registered** (in the Suro registry), **on Wi-Fi** (the newest MikroTik association list, trusted for three minutes), **agent online** (signed heartbeats within the deadline) and **compliance** (verified agent evidence). A wired computer or one on an AP Suro does not poll shows "Wi-Fi: no recent data", not offline. "Never seen" means neither source has ever observed the computer.
+
+## Local administrator passwords
+
+Computers prepared with the old kursant script have an `AcademyAdmin` password derived from the Wi-Fi MAC. Open the computer's **Local administrator** tab to see the old-script findings, choose the MAC, show the password (owner role and recent TOTP; audited) and record whether sign-in worked. Give new computers a generated random password. See [legacy credentials](developers/legacy-credentials.md), including the firewall reset the old startup task performs at every boot.
+
 ## Owners and device groups
 
 The first logged-in user of an enrolled Windows machine sees a separate small identification window. Armenian is the default. Full name is required; rank is optional and “no military rank” is supported. The explanation identifies the administrative purpose. The background service securely submits the report. Without a logged-in user, identification remains pending.

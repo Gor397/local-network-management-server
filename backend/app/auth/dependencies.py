@@ -44,7 +44,7 @@ def admin_session(request: Request, db=Depends(db_session)):
 
 
 PERMISSIONS = {
-    "owner": {"read", "manage", "policy", "network", "approve", "deploy", "ssh", "administrators"},
+    "owner": {"read", "manage", "policy", "network", "approve", "deploy", "ssh", "administrators", "credentials"},
     "operator": {"read", "manage", "policy", "network"},
     "viewer": {"read"},
     "deployer": {"read", "deploy"},
@@ -56,7 +56,8 @@ def require(permission, mfa=False):
         admin, session = identity
         if permission not in PERMISSIONS.get(admin.role, set()):
             raise HTTPException(403, "auth.forbidden")
-        if mfa and request.app.state.settings.mfa_required and (not session.mfa_at or session.mfa_at < utcnow() - timedelta(minutes=10)):
+        # mfa="always" ignores the optional-MFA setting, for actions such as revealing a recovery password.
+        if mfa and (mfa == "always" or request.app.state.settings.mfa_required) and (not session.mfa_at or session.mfa_at < utcnow() - timedelta(minutes=10)):
             raise HTTPException(403, "auth.mfa_required")
         return admin
     return dependency

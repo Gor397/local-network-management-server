@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.config import Settings
 from app.db import database
 from app.security.crypto import Vault
-from app.api import auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory
+from app.api import auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory, credentials
 
 log = logging.getLogger("lantern")
 
@@ -90,7 +90,7 @@ def create_app(settings=None):
     async def policy_conflict(request, exc):
         return JSONResponse({"error": {"code": "policy.group_conflict", "control": str(exc).split(":", 1)[-1]}}, 409)
 
-    for module in (auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory):
+    for module in (auth, devices, policies, agent, mikrotik, deployments, ssh, operations, maintenance, identities, groups, infrastructure, diagnostics, profiles, inventory, credentials):
         app.include_router(module.router, prefix="/api/v1")
 
     @app.get("/healthz")

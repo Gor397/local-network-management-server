@@ -22,3 +22,5 @@ artifacts/
 .env.before-update
 .ruff_cache/
 .claude/settings.local.json
+# Original pre-Suro kursant scripts (reference only; contains the legacy password algorithm and PsExec).
+k_t_scr_/

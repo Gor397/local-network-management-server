@@ -112,6 +112,25 @@ class DeviceCredential(Record, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class AdminCredential(Record, Base):
+    """The local Windows administrator credential Suro can reveal for recovery.
+
+    LEGACY_MAC_V1 stores only the pinned MAC (the password is derived on demand);
+    RANDOM_V1 stores the Vault-sealed password. Never serialize `secret`.
+    """
+    __tablename__ = "admin_credentials"
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    account: Mapped[str] = mapped_column(String(20))
+    scheme: Mapped[str] = mapped_column(String(20))
+    source_mac: Mapped[str | None] = mapped_column(String(17))
+    secret: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="UNVERIFIED")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    verified_by: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (UniqueConstraint("device_id", "account"),)
+
+
 class RequestNonce(Base):
     __tablename__ = "request_nonces"
     nonce: Mapped[str] = mapped_column(String(128), primary_key=True)

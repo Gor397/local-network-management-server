@@ -20,6 +20,7 @@ import { useData } from "../hooks/useData";
 import { useT } from "../i18n";
 import { HelpAction, HelpButton } from "../components/Help";
 import type { HelpId } from "../help/catalog";
+import { NetworkExplorer } from "./NetworkExplorer";
 
 const fmt = (v: any) =>
   v
@@ -93,6 +94,12 @@ function useTools() {
 const reason: Field = { name: "reason", label: "reason" };
 
 export function SuroPages({ page, id }: { page: string; id?: string }) {
+  if (page === "explorer")
+    return (
+      <Page title="explorer" help="network-explorer">
+        <NetworkExplorer />
+      </Page>
+    );
   if (page === "connected-clients") return <ConnectedClients />;
   if (page === "network-inventory") return <NetworkInventory />;
   if (page === "owners") return <Owners />;

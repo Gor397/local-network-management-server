@@ -54,6 +54,8 @@ Create snapshots before each mutation test. Use a throwaway Windows 11 VM with o
 | Locale | Install matching offline language resources, request locale job, log on | Correct intended user's display/culture/keyboards and preserved existing languages |
 | SSH | Enable offline capability; pin host key; use browser session | Wrong host key rejected, public-key auth only, restricted inbound reachability, termination |
 | Storage assessment | VM without D:, BitLocker and recovery partitions | Assessment flags; no resize/format operation is triggered |
+| Legacy kursant computer | Snapshot a VM, run the original `kursant_script_*.ps1` on it, install the agent, recheck | `legacy` inventory (task, `kursant_username`, allowlist, `ReAgent.xml` state), adapter `media_type`; the revealed `AcademyAdmin` password signs in |
+| Legacy algorithm | Run only `Convert-MacToUniquePassword` on the vectors in [legacy credentials](legacy-credentials.md#confirming-the-port-against-windows-powershell) | Identical output; no machine change |
 
 Do not simulate Windows success by changing database rows or relaxing unknown checks. Tests should observe actual effective Windows state.
 

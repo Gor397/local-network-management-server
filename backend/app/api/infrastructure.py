@@ -502,58 +502,44 @@ def clients(
     db=Depends(db_session),
 ):
     import json
+    from app.services.explorer import latest_associations
     routers = db.scalars(select(Router).where(Router.archived.is_(False))).all()
-    caps = {(r.controller_id, (r.inventory or {}).get("base_mac")): r for r in routers if r.controller_id}
     selected = None
     if group_id:
         selected = set(db.scalars(select(ApGroupMember.router_id).where(ApGroupMember.group_id == group_id)))
     # Clients are reported by directly managed routers (a CAPsMAN controller reports all its CAPs).
-    reporters = {r.id: r for r in routers if not r.controller_id}
-    ranked = select(
-        RouterTelemetry.id,
-        func.row_number()
-        .over(partition_by=RouterTelemetry.router_id, order_by=RouterTelemetry.created_at.desc())
-        .label("position"),
-    ).subquery()
-    samples = db.scalars(
-        select(RouterTelemetry)
-        .join(ranked, ranked.c.id == RouterTelemetry.id)
-        .where(ranked.c.position == 1, RouterTelemetry.router_id.in_(reporters))
-    ).all()
+    associations, _ = latest_associations(db, routers)
     devices = {d.primary_mac: d for d in db.scalars(select(Device).where(Device.enabled.is_(True)))}
+    hostnames = {}
     rows = []
-    for sample in samples:
-        r = reporters[sample.router_id]
-        radios = r.capabilities.get("cap_radios", {})
-        hostnames = {}
-        if r.snapshot and sample.clients:
-            try:
-                for lease in json.loads(request.app.state.vault.open(r.snapshot)).get("ip/dhcp-server/lease", []):
-                    if lease.get("host-name"):
-                        hostnames[(lease.get("mac-address") or "").upper()] = lease["host-name"]
-            except Exception:
-                pass
-        fresh = bool(r.status == "ONLINE" and (utcnow() - sample.created_at).total_seconds() < 180)
-        for client in sample.clients:
-            mac = client.get("mac-address", "").upper()
-            cap = caps.get((r.id, radios.get(client.get("interface"))))
-            if selected is not None and r.id not in selected and not (cap and cap.id in selected):
-                continue
-            d = devices.get(mac)
-            rows.append({
-                "router_id": r.id,
-                "router_name": r.name,
-                "access_point_id": cap.id if cap else r.id,
-                "access_point": cap.name if cap else r.name,
-                "device_id": d.id if d else None,
-                "hostname": d.hostname if d else hostnames.get(mac),
-                "registered": bool(d),
-                # The access-list comment: an administrator label, not verified identity.
-                "label": client.get("comment") or "",
-                "observation": redact(client),
-                "observed_at": sample.created_at,
-                "fresh": fresh,
-            })
+    for ap, r, client, observed_at, fresh in associations:
+        if r.id not in hostnames:
+            hostnames[r.id] = {}
+            if r.snapshot:
+                try:
+                    for lease in json.loads(request.app.state.vault.open(r.snapshot)).get("ip/dhcp-server/lease", []):
+                        if lease.get("host-name"):
+                            hostnames[r.id][(lease.get("mac-address") or "").upper()] = lease["host-name"]
+                except Exception:
+                    pass
+        mac = client.get("mac-address", "").upper()
+        if selected is not None and r.id not in selected and ap.id not in selected:
+            continue
+        d = devices.get(mac)
+        rows.append({
+            "router_id": r.id,
+            "router_name": r.name,
+            "access_point_id": ap.id,
+            "access_point": ap.name,
+            "device_id": d.id if d else None,
+            "hostname": d.hostname if d else hostnames[r.id].get(mac),
+            "registered": bool(d),
+            # The access-list comment: an administrator label, not verified identity.
+            "label": client.get("comment") or "",
+            "observation": redact(client),
+            "observed_at": observed_at,
+            "fresh": fresh,
+        })
     if q:
         needle = q.lower()
         rows = [x for x in rows if needle in " ".join(str(v) for v in (x["hostname"], x["label"], x["access_point"],
@@ -563,6 +549,12 @@ def clients(
         "total": len(rows),
         "items": rows[max(0, offset) : max(0, offset) + min(100, max(1, limit))],
     }
+
+
+@router.get("/network/explorer")
+def explorer(request: Request, admin=Depends(require("read")), db=Depends(db_session)):
+    from app.services.explorer import build
+    return build(db, request.app.state.settings)
 
 
 @router.get("/network/topology")

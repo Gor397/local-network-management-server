@@ -112,7 +112,7 @@ def compliance(body: Evidence, d=Depends(agent_identity), db=Depends(db_session)
             raise HTTPException(422, "compliance.invalid_source")
         # Arrival time is authoritative for freshness; endpoint clock isn't trusted.
         claims[name] = {**claim, "verified_at": utcnow().isoformat(), "source": "agent", "version_id": d.policy_version_id}
-    allowed = {"users", "volumes", "partitions", "firewall", "network_adapters", "hardware", "os", "bitlocker", "storage_readiness", "data_locations", "settings", "session"}
+    allowed = {"users", "volumes", "partitions", "firewall", "network_adapters", "hardware", "os", "bitlocker", "storage_readiness", "data_locations", "settings", "session", "legacy"}
     d.inventory = {k: v for k, v in body.inventory.items() if k in allowed}
     d.inventory = {**d.inventory, "claims": claims}
     session = d.inventory.get("session", {})

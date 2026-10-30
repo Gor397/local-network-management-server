@@ -124,6 +124,14 @@
     "network-inventory": {
       "title": "Network inventory",
       "body": "This list combines what your MikroTik routers already reported during discovery: DHCP leases, ARP entries and Wi-Fi registrations. Suro does not scan or contact the devices to build it. A device that is asleep, uses a static address outside DHCP or sits behind another router may be missing. Random MAC means the address is locally administered, which is typical of phones that randomize their MAC. Same IP means two hardware addresses claimed one IP. The Suro client column shows only what the server can prove: not registered, registered without a certificate, enrolled, or agent reporting. A category or label is a note for administrators; it never grants or removes network access."
+    },
+    "admin-credentials": {
+      "title": "Local administrator passwords",
+      "body": "Computers prepared with the old kursant script have an AcademyAdmin account whose password was calculated from the Wi-Fi MAC address. Suro repeats that calculation so you can still sign in; it never changes the password on the computer. Choose the MAC the Wi-Fi adapter had when the script ran, show the password (requires a recent two-factor sign-in and is recorded in the audit log), sign in, then record whether it worked. Anyone who knows the old method and can see a Wi-Fi MAC can calculate these passwords, so give new computers a generated random password and move old ones to it during planned maintenance. If sign-in fails, the computer needs manual recovery."
+    },
+    "network-explorer": {
+      "title": "Network explorer",
+      "body": "The explorer shows access point groups, their access points and the registered computers currently on them. Click an access point to see its connected and previously seen computers, then click a computer to open its full page. The status cards at the top filter the computer lists. Registered, on Wi-Fi, agent online and compliant are separate facts with separate sources: a computer can be on Wi-Fi while its agent is silent, or report through its agent over a cable without appearing in any Wi-Fi list. Nothing on this page changes a device."
     }
   }
 }

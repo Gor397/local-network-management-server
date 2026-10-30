@@ -1,6 +1,9 @@
+import base64
+import json
 import re
 from sqlalchemy import select
 from app.models import AdminCredential, AuditLog, Device
+from test_agent_protocol import enrolled  # noqa: F401  (fixture)
 from app.services.legacy_credentials import legacy_mac_v1, legacy_mac_candidates, legacy_state, random_password
 
 # Produced by this port and by an independent statement-by-statement JavaScript transliteration of
@@ -127,3 +130,28 @@ def test_viewer_cannot_register_or_reveal(client, admin, app):
     assert client.get(base).status_code == 200
     assert client.post(base + "/reveal", json={"reason": "curious viewer"}).status_code == 403
     assert client.post(base, json={"scheme": "RANDOM_V1", "replace": True, "reason": "takeover"}).status_code == 403
+
+
+def test_firewall_policy_is_refused_while_kursant_task_resets_it(admin, app, enrolled):
+    from test_agent_protocol import signed_request
+    d, key, fp, _ = enrolled
+    path = f"/api/v1/devices/{d['id']}/maintenance"
+    legacy = {"startup_task": {"state": "Ready", "kursant_username": "student"}, "firewall_rule_addresses": ["10.47.47.47"]}
+    with app.state.sessions.begin() as db:
+        device = db.get(Device, d["id"])
+        device.mode, device.inventory = "MAINTENANCE", {"legacy": legacy}
+    firewall = {"operation": "firewall.apply_allowlist", "replace_legacy_rules": True, "reason": "move to Suro rules"}
+    assert admin.post(path, json=firewall).json()["error"]["code"] == "maintenance.legacy_task_active"
+    retire = admin.post(path, json={"operation": "legacy.retire_startup_task", "enable_winre": True, "reason": "stop boot reset"})
+    assert retire.status_code == 200, retire.text
+    manifest = signed_request(admin, key, fp, "GET", "/api/v1/agent/maintenance/next").json()["job"]
+    payload = json.loads(base64.b64decode(manifest["payload"]))
+    assert payload["operation"] == "legacy.retire_startup_task" and payload["enable_winre"] is True
+    # Once the agent reports the task disabled, the reviewed firewall migration is accepted.
+    with app.state.sessions.begin() as db:
+        db.get(Device, d["id"]).inventory = {"legacy": {**legacy, "startup_task": {"state": "Disabled"}}}
+    assert admin.post(path, json=firewall).status_code == 200
+    with app.state.sessions.begin() as db:
+        db.get(Device, d["id"]).inventory = {}
+    assert admin.post(path, json=firewall).json()["error"]["code"] == "maintenance.legacy_state_unknown"
+    assert admin.post(path, json={"operation": "legacy.retire_startup_task", "reason": "nothing there"}).json()["error"]["code"] == "maintenance.legacy_task_not_reported"

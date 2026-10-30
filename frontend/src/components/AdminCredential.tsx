@@ -24,6 +24,7 @@ type CredentialView = {
   };
   legacy: {
     reported: boolean;
+    startup_task: { state: string } | null;
     kursant_username: string | null;
     allowed_addresses: string[];
     server_address: string | null;
@@ -90,6 +91,16 @@ export function AdminCredentialPanel({ deviceId }: { deviceId: string }) {
         );
       },
     });
+  const task = data.legacy.startup_task;
+  const taskActive = !!task && task.state.toLowerCase() !== "disabled";
+  const maintenance = (operation: string, info: string, extra: any[] = [], body: any = {}) =>
+    modal({
+      title: operation,
+      info: t(info),
+      fields: [...extra, { name: "reason", label: "reason" }],
+      submit: (v) =>
+        api("/devices/" + deviceId + "/maintenance", "POST", { operation, ...body, ...v }),
+    });
   const record_result = () =>
     modal({
       title: "recordCredentialResult",
@@ -139,6 +150,48 @@ export function AdminCredentialPanel({ deviceId }: { deviceId: string }) {
         </div>
       )}
       {!data.legacy.reported && <p className="notice">{t("legacyNotReported")}</p>}
+      {task && (
+        <div className="button-row">
+          <span>
+            {t("legacyStartupTask")}: <b>{t(taskActive ? "legacyTaskActive" : "legacyTaskDisabled")}</b>
+          </span>
+          {taskActive ? (
+            <HelpAction feature="retireLegacyTask">
+              <button
+                className="button secondary"
+                onClick={() =>
+                  maintenance("legacy.retire_startup_task", "retireLegacyTaskNotice", [
+                    { name: "enable_winre", label: "enableWinre", type: "checkbox" },
+                  ])
+                }
+              >
+                {t("legacy.retire_startup_task")}
+              </button>
+            </HelpAction>
+          ) : (
+            <>
+              <HelpAction feature="replaceLegacyRules">
+                <button
+                  className="button secondary"
+                  onClick={() =>
+                    maintenance("firewall.apply_allowlist", "replaceLegacyRulesNotice", [], {
+                      replace_legacy_rules: true,
+                    })
+                  }
+                >
+                  {t("replaceLegacyRules")}
+                </button>
+              </HelpAction>
+              <button
+                className="button secondary danger"
+                onClick={() => maintenance("legacy.restore_startup_task", "restoreLegacyTaskNotice")}
+              >
+                {t("legacy.restore_startup_task")}
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <div className="detail-grid">
         {[
           ["adminAccount", record?.account],

@@ -10,7 +10,14 @@ foreach($ip in $managementIPs){
     $explicit=@($p.firewall_allowances | Where-Object { $_.protocol -eq 'TCP' -and $management.Port -in $_.ports -and ($_.remote -eq "$ip/32" -or $_.remote -eq "$ip/128") })
     if(-not $explicit.Count){throw 'Policy must explicitly allow the management server literal address and HTTPS port'}
 }
-$conflicts=@(Get-NetFirewallRule -PolicyStore ActiveStore -Direction Outbound -Enabled True -Action Allow | Where-Object Group -ne 'LanternPolicy')
+# The kursant startup task resets the firewall at every boot; applying now would last only until restart.
+$kursant=Get-ScheduledTask -TaskPath '\Custom Tasks\' -TaskName 'Running_kursant_script_at_every_startup' -ErrorAction SilentlyContinue
+if($kursant -and [string]$kursant.State -ne 'Disabled'){throw 'Retire the legacy kursant startup task first'}
+# Only these exact legacy rules may be migrated, and only with explicit approval; they are disabled, not deleted.
+$legacyNames='^Allow outbound to (192\.168\.0\.1|10\.47\.47\.47|10\.47\.47\.74)$'
+$outbound=@(Get-NetFirewallRule -PolicyStore ActiveStore -Direction Outbound -Enabled True -Action Allow | Where-Object Group -ne 'LanternPolicy')
+$legacyRules=@(if($m.replace_legacy_rules){$outbound | Where-Object { $_.DisplayName -match $legacyNames -and $_.PolicyStoreSourceType -eq 'Local' }})
+$conflicts=@($outbound | Where-Object { $_.Name -notin $legacyRules.Name })
 if($conflicts.Count){throw 'Existing outbound allow rules require a reviewed migration; no manual rules have been removed'}
 $backup="$root\firewall-$($m.job_id).wfw"
 & "$env:SystemRoot\System32\netsh.exe" advfirewall export $backup | Out-Null
@@ -44,6 +51,7 @@ try{
         $name="LanternNDP-$type"
         if(-not(Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue)){New-NetFirewallRule -Name $name -DisplayName $name -Group LanternPolicy -Direction Outbound -Action Allow -Protocol ICMPv6 -IcmpType $type -RemoteAddress 'fe80::/10','ff02::/16' -Profile Any | Out-Null}
     }
+    foreach($rule in $legacyRules){Disable-NetFirewallRule -Name $rule.Name}
     Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True -DefaultInboundAction Block -DefaultOutboundAction Block
     # Verify live HTTPS connectivity using system trust; unsigned agent requests must return 401.
     $reachable=$false
@@ -59,4 +67,4 @@ try{
     if($LASTEXITCODE -eq 0){Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue}
     throw $failure
 }
-@{state='SUCCEEDED';details=@{backup=$backup;management_tls_verified=$true;effective_rule_verification_required=$true}} | ConvertTo-Json -Compress
+@{state='SUCCEEDED';details=@{backup=$backup;management_tls_verified=$true;legacy_rules_disabled=@($legacyRules.DisplayName);effective_rule_verification_required=$true}} | ConvertTo-Json -Compress

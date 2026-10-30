@@ -13,12 +13,16 @@ router = APIRouter(tags=["maintenance"])
 
 class Maintenance(BaseModel):
     operation: Literal[
-        "windows.locale", "ssh.enable", "firewall.apply_allowlist", "system.reboot"
+        "windows.locale", "ssh.enable", "firewall.apply_allowlist", "system.reboot",
+        "legacy.retire_startup_task", "legacy.restore_startup_task",
     ]
     language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}-[A-Za-z]{2,8}$")
     keyboard_layouts: list[str] = Field(default_factory=list, max_length=16)
     public_key: str | None = Field(default=None, max_length=4096)
     approve_disable_default_ssh_rule: bool = False
+    # Explicit approval to disable (not delete) the kursant "Allow outbound to ..." rules once Suro's verify.
+    replace_legacy_rules: bool = False
+    enable_winre: bool = False
     not_before: datetime | None = None
     reason: str = Field(min_length=5, max_length=2000)
 
@@ -40,6 +44,16 @@ def create(
     if blocked := endpoint_change_block(request.app.state.settings, d):
         raise HTTPException(409, blocked)
     policy = db.get(PolicyVersion, d.policy_version_id)
+    from app.services.legacy_credentials import legacy_state
+    legacy = legacy_state(d.inventory, request.app.state.settings.public_origin)
+    if body.operation == "firewall.apply_allowlist":
+        # The kursant startup task would erase Suro's rules at the next boot; retire it first.
+        if "legacy.firewall_reset_at_boot" in legacy["findings"]:
+            raise HTTPException(409, "maintenance.legacy_task_active")
+        if body.replace_legacy_rules and not legacy["reported"]:
+            raise HTTPException(409, "maintenance.legacy_state_unknown")
+    if body.operation.startswith("legacy.") and not legacy["startup_task"]:
+        raise HTTPException(409, "maintenance.legacy_task_not_reported")
     if body.operation == "windows.locale" and not body.language:
         raise HTTPException(422, "maintenance.language_required")
     import re

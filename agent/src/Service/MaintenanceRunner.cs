@@ -53,6 +53,7 @@ public sealed class MaintenanceRunner(AgentConfiguration config, LocalState stat
             "ssh.enable" => "Network/Enable-OpenSSH.ps1",
             "firewall.apply_allowlist" => "Firewall/Apply-Allowlist.ps1",
             "system.reboot" => "Service/Approved-Reboot.ps1",
+            "legacy.retire_startup_task" or "legacy.restore_startup_task" => "Legacy/Retire-KursantTask.ps1",
             _ => throw new InvalidDataException("Unsupported maintenance operation.") };
         var filename = $"maintenance-{id}.json";
         var ledger = state.PathFor($"maintenance-{id}.started");

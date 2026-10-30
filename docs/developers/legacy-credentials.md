@@ -13,7 +13,16 @@ Before Suro, computers were prepared with the scripts kept outside version contr
 5. removed the logged-on user from Administrators and added that user to Users;
 6. registered the SYSTEM startup task `\Custom Tasks\Running_kursant_script_at_every_startup`, which runs `C:\Windows\System32\SystemScripts\kursant_persisting_*.ps1 -KursantUsername <user>`.
 
-**At every boot the persisting script resets Windows Firewall and re-applies the three-address allowlist.** Any rule Suro adds is removed on restart. The Suro agent can reach the server after a restart only if the server address is in that allowlist. Retire the task in a controlled maintenance step before Suro manages the firewall on such a computer. Suro does not do this automatically yet; see [the remaining work](#remaining-work).
+**At every boot the persisting script resets Windows Firewall and re-applies the three-address allowlist.** Any rule Suro adds is removed on restart. The Suro agent can reach the server after a restart only if the server address is in that allowlist. While the agent reports the task as active, the server refuses `firewall.apply_allowlist` (`maintenance.legacy_task_active`), and `Apply-Allowlist.ps1` refuses it again on the endpoint.
+
+## Retiring the startup task
+
+Both steps are typed maintenance jobs: the computer must be in Maintenance or Approved remediation mode, and approval needs the `approve` permission. The **Local administrator** tab offers them in order.
+
+1. `legacy.retire_startup_task` (`agent/src/Legacy/Retire-KursantTask.ps1`) exports the task XML to `%ProgramData%\Lantern\legacy-kursant-task-<job>.xml`, **disables** the task and reads its state back. It does not delete the task or the persisting script, and it does not touch the firewall. The rules in effect now keep the current connectivity; they simply stop being reset at boot. An already-disabled task is reported as verified without change. With `enable_winre` it also runs `reagentc /enable` and reports the exit code.
+2. `firewall.apply_allowlist` with `replace_legacy_rules` keeps the existing safeguards: the policy must explicitly allow the server's literal address and port, a full `netsh advfirewall export` backup is taken and a 3-minute rollback task is registered. It then adds the Suro rules, **disables** only the locally stored rules named exactly `Allow outbound to 192.168.0.1|10.47.47.47|10.47.47.74`, and verifies HTTPS to the server. Any failure imports the backup. Any other non-Suro outbound allow rule still stops the job.
+
+`legacy.restore_startup_task` re-enables the task, which resets the firewall again from the next boot. A local administrator can do the same with `Enable-ScheduledTask -TaskPath '\Custom Tasks\' -TaskName Running_kursant_script_at_every_startup`. The rules disabled in step 2 can be re-enabled with `Enable-NetFirewallRule -DisplayName 'Allow outbound to *'`.
 
 The `_ru` variants use localized group names (`Администраторы`, `Пользователи`). The English persisting script misspells `Admisnistrators`, so its startup re-demotion never worked on English Windows. The Russian `PasswordGenerator_ru.ps1` uses `Select-Object 1` instead of `-First 1`, so it probably printed no usable password. The account creation itself used `-First 1` in both languages. `loog.txt` contains script output but no password.
 
@@ -63,5 +72,5 @@ The random passwords are only as safe as the server's `ENCRYPTION_KEY` and its b
 ## Remaining work
 
 - No agent operation sets or rotates the password. That would require sending a secret to the endpoint and verifying the sign-in, which needs Windows VM validation first.
-- No typed maintenance operation retires the legacy startup task or re-enables WinRE. Both must stage firewall changes so the management connection survives a reboot.
+- `Retire-KursantTask.ps1` and the `replace_legacy_rules` path of `Apply-Allowlist.ps1` have not run on Windows. In particular, whether legacy rules report `PolicyStoreSourceType` `Local` in the ActiveStore needs confirming. If they don't, the job stops on the conflict check without making any change.
 - Inventory additions (`media_type`, `permanent_mac`, `legacy`) have not been executed on Windows. The `ReAgent.xml` `InstallState` read in particular needs confirming on Windows 10 and 11.

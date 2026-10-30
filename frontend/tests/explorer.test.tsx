@@ -52,7 +52,7 @@ const explorer = {
 const credential = {
   credential: { account: "AcademyAdmin", scheme: "LEGACY_MAC_V1", source_mac: "A4:C3:F0:85:7E:21", status: "UNVERIFIED", verified_at: null, revision: 1 },
   legacy: {
-    reported: true, kursant_username: "student", allowed_addresses: ["10.47.47.47"], server_address: "10.0.0.5",
+    reported: true, startup_task: { state: "Ready" }, kursant_username: "student", allowed_addresses: ["10.47.47.47"], server_address: "10.0.0.5",
     winre: "DISABLED", findings: ["legacy.firewall_reset_at_boot", "legacy.server_blocked_after_boot"],
   },
   candidates: [{ mac: "A4:C3:F0:85:7E:21", adapter: "Wi-Fi", status: "Up", source: "current", classified: true }],
@@ -134,4 +134,12 @@ it("asks for a reason before revealing and hides actions from non-owners", () =>
   renderWith(<AdminCredentialPanel deviceId="d1" />, "en", "viewer");
   expect(screen.queryByText(en.revealPassword)).toBeNull();
   expect(screen.getByText(en.credentialOwnerOnly)).toBeTruthy();
+});
+
+it("offers to disable the old startup task through approved maintenance", () => {
+  const modal = renderWith(<AdminCredentialPanel deviceId="d1" />);
+  expect(screen.getByText(en.legacyTaskActive)).toBeTruthy();
+  expect(screen.queryByText(en.replaceLegacyRules)).toBeNull();
+  fireEvent.click(screen.getByText(en["legacy.retire_startup_task"]));
+  expect(modal).toHaveBeenCalledWith(expect.objectContaining({ title: "legacy.retire_startup_task" }));
 });

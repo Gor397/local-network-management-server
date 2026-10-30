@@ -132,6 +132,10 @@
     "network-explorer": {
       "title": "Network explorer",
       "body": "The explorer shows access point groups, their access points and the registered computers currently on them. Click an access point to see its connected and previously seen computers, then click a computer to open its full page. The status cards at the top filter the computer lists. Registered, on Wi-Fi, agent online and compliant are separate facts with separate sources: a computer can be on Wi-Fi while its agent is silent, or report through its agent over a cable without appearing in any Wi-Fi list. Nothing on this page changes a device."
+    },
+    "legacy-startup-task": {
+      "title": "Old kursant startup task",
+      "body": "The old kursant script installed a startup task that, at every boot, resets Windows Firewall, blocks all outbound traffic except to 192.168.0.1, 10.47.47.47 and 10.47.47.74, and re-adds AcademyAdmin to Administrators. While it is active, any firewall rule Suro adds disappears at the next restart, so Suro refuses to apply its firewall policy. Step 1: put the computer in Maintenance mode and disable the task. This keeps today's rules and connection exactly as they are. Step 2: once the policy explicitly allows the Suro server, move the firewall to Suro rules. The old rules are disabled, not deleted, and the change is undone automatically if the server becomes unreachable. You can re-enable the task at any time."
     }
   }
 }

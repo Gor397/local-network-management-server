@@ -892,5 +892,18 @@
   "sourceNote.registered": "Registered: the computer is in the Suro device registry. That alone says nothing about whether it is switched on.",
   "sourceNote.wifi": "Wi-Fi: the newest association list from polled MikroTik access points, trusted for 3 minutes. Wired computers and access points Suro does not poll never appear there, so their Wi-Fi status is unknown rather than offline.",
   "sourceNote.agent": "Agent: signed heartbeats from the Suro Windows service. Silent means no heartbeat within the configured deadline.",
-  "sourceNote.compliance": "Compliance: the latest verified agent evidence checked against the assigned policy. Missing or old evidence is shown as unverified, never as compliant."
+  "sourceNote.compliance": "Compliance: the latest verified agent evidence checked against the assigned policy. Missing or old evidence is shown as unverified, never as compliant.",
+  "legacyStartupTask": "Old kursant startup task",
+  "legacyTaskActive": "active – resets the firewall at every boot",
+  "legacyTaskDisabled": "disabled",
+  "legacy.retire_startup_task": "Disable old startup task",
+  "legacy.restore_startup_task": "Re-enable old startup task",
+  "retireLegacyTaskNotice": "The task is disabled, not deleted, and a copy is saved on the computer. The firewall rules in effect now stay as they are, so the connection to Suro does not change; they just stop being reset at boot. Runs only in Maintenance or Approved remediation mode.",
+  "restoreLegacyTaskNotice": "Turns the old task back on. From the next boot it again resets Windows Firewall and removes Suro's firewall rules.",
+  "enableWinre": "Also re-enable Windows Recovery Environment",
+  "replaceLegacyRules": "Move firewall to Suro rules",
+  "replaceLegacyRulesNotice": "Applies the policy's firewall allowlist and disables (does not delete) the three old \"Allow outbound to …\" rules. A full firewall backup is taken first. If HTTPS to the Suro server cannot be confirmed, the backup is restored automatically. The policy must explicitly allow the Suro server address and port.",
+  "maintenance.legacy_task_active": "The old kursant startup task is still active and would remove these firewall rules at the next boot. Disable it first.",
+  "maintenance.legacy_state_unknown": "This agent has not reported the old-script state yet. Update the agent and run a recheck first.",
+  "maintenance.legacy_task_not_reported": "The agent has not reported the old startup task on this computer."
 }

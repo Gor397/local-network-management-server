@@ -147,3 +147,5 @@ CAPsMAN follow-up: the 80 CAPs are now listed, groupable access points, observed
 | Usability CSS | 40px buttons/inputs, larger table/badge/tab text, visible `:focus-visible`, wrapping grids and toolbars | Production build | Visual review of every page in all three locales |
 
 Backend: **126 passed**. Dashboard: **21 passed**, production build passed. Not run: .NET build (no SDK), Windows VM, Compose smoke, browser E2E.
+
+Follow-up: typed maintenance `legacy.retire_startup_task` / `legacy.restore_startup_task` (disable with XML backup, optional WinRE) and an explicitly approved `replace_legacy_rules` firewall migration that disables only the three exact legacy rules after verified management HTTPS. Server and endpoint both refuse a firewall policy while the task is active. Covered by `test_firewall_policy_is_refused_while_kursant_task_resets_it` and a dashboard test (22 passed). The PowerShell and C# changes have not been built or run on Windows.

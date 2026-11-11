@@ -31,7 +31,7 @@ install-frontend:
 skills: ## Link the repository skills into ~/.codex/skills
 	$(PYTHON) scripts/install-project-skills.py
 
-.PHONY: test test-backend test-frontend build-frontend check-docs check-agent check
+.PHONY: test test-backend test-frontend build-frontend check-docs check-agent client check
 test: ## Run one test file: make test T=backend/tests/test_safety_modes.py
 	$(call require,T)
 	$(PYTHON) -m pytest $(T) -q
@@ -43,6 +43,8 @@ check-docs: ## Documentation links and skill entry points
 	$(PYTHON) scripts/dev-check.py --area docs
 check-agent: ## Windows agent cross-build and crypto contracts (needs .NET 10 or DOTNET_BIN)
 	$(PYTHON) scripts/dev-check.py --area agent
+client: ## Build dist/client/SuroSetup.exe (64+32-bit, unsigned; ARCH=x64 for 64-bit only)
+	$(PYTHON) scripts/build-client.py $(if $(ARCH),--arch $(ARCH))
 check: test-backend test-frontend check-docs ## Backend + dashboard + docs (agent excluded)
 
 ##@ Development: network safety
@@ -53,8 +55,11 @@ netcheck: ## Read-only dual-network check: make netcheck TARGET=192.168.88.1
 
 ##@ Development: isolated lab (https://localhost:18443)
 
-.PHONY: lab lab-prepare lab-build lab-up lab-smoke lab-down lab-logs lab-admin lab-mode lab-use-wifi
+.PHONY: up lab lab-fresh lab-prepare lab-build lab-up lab-smoke lab-down lab-logs lab-admin lab-mode lab-use-wifi
+up: lab ## Prepare, build and start the local lab (alias for make lab)
 lab: lab-prepare lab-build lab-up ## Prepare, build and start the lab
+lab-fresh: ## Prepare a separate fresh database (preserves retained volumes; requires missing env/empty data)
+	$(PYTHON) scripts/lab.py fresh
 lab-prepare: ## Create test-only keys/config in /tmp (refuses to overwrite retained lab data)
 	$(PYTHON) scripts/lab.py prepare
 lab-build: ## Build lab images

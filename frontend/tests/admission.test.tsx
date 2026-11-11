@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { AdmissionPage, AdmissionDevicePanel } from "../src/pages/AdmissionPage";
 import { WorkContext } from "../src/context";
 import { LocaleContext, type Language } from "../src/i18n";
@@ -21,11 +21,20 @@ const row = {
   override_until: null, onboarding_until: null, connected_ap: "MikroTik-02",
   rollback_commands: ['/ip firewall filter remove [find comment~"^lantern:d1:admission:"]'], logs: [],
 };
-vi.mock("../src/api/client", () => ({ api: vi.fn(async () => ({})) }));
+const subnet = {
+  id: "s1", router_id: "r1", router_name: "Gateway", cidr: "192.168.88.0/24", state: "PREPARING", error: null, members: 3, granted: 2,
+  rollback_commands: ['/ip firewall filter remove [find comment~"^lantern:subnet:s1:"]'],
+};
+const preview = {
+  feasibility: { blockers: [], warnings: ["admission.subnet_hosts_restricted"], facts: { subnet: "192.168.88.0/24", hosts_restricted: 1 },
+                 restricted: [{ address: "192.168.88.52", mac: "AA:00:00:00:00:03", hostname: null }], keeping: [] },
+  rollback_commands: [], plan: { id: "p1", operations: [], expires_in_seconds: 600, confirm_restricted: 1 },
+};
+vi.mock("../src/api/client", () => ({ api: vi.fn(async (path: string) => (path.endsWith("/preview") ? preview : { state: "VERIFIED" })) }));
 vi.mock("../src/hooks/useData", () => ({
   useData: (path: string) => ({
     data: path.startsWith("/admission/overview")
-      ? { policy, counts: { ENROLLED: 1, ENROLLMENT_PENDING: 0, NOT_ENROLLED: 0 }, items: [row] }
+      ? { policy, counts: { ENROLLED: 1, ENROLLMENT_PENDING: 0, NOT_ENROLLED: 0 }, items: [row], subnets: [subnet], exceptions: [] }
       : path.startsWith("/admission/devices/") ? row : path === "/mikrotik/routers" ? [{ id: "r1", name: "Gateway" }, { id: "c1", name: "CAP", controller_id: "r1" }] : null,
     error: "",
   }),
@@ -44,11 +53,11 @@ function renderWith(node: any, language: Language = "en") {
   return modal;
 }
 
-it("offers only disabled and pilot modes and a pilot MAC form limited to real routers", () => {
+it("offers disabled, selected and all-except-exceptions modes and a MAC form limited to real routers", () => {
   const modal = renderWith(<AdmissionPage />);
   const mode = screen.getByLabelText(en["adm.mode"]) as HTMLSelectElement;
   const options = Object.fromEntries([...mode.options].map((o) => [o.value, o.disabled]));
-  expect(options).toEqual({ DISABLED: false, PILOT: false, GROUPS: true, ALL: true });
+  expect(options).toEqual({ DISABLED: false, PILOT: false, GROUPS: true, ALL: false });
   fireEvent.click(screen.getByRole("button", { name: en["adm.addPilot"] }));
   const spec = modal.mock.calls[0][0];
   expect(spec.fields.map((f: any) => f.name)).toEqual(["mac", "hostname", "router_id", "reason"]);
@@ -76,7 +85,7 @@ it("renders in Armenian and Russian and translates every status the server can r
   for (const [language, dict] of [["hy", hy], ["ru", ru]] as const) {
     renderWith(<AdmissionPage />, language);
     expect(screen.getAllByText(dict["adm.title"]).length).toBeGreaterThan(0);
-    const table = screen.getByRole("table");
+    const table = screen.getAllByRole("table").at(-1)!;
     expect(within(table).getByText(dict["adm.client.ENROLLED"])).toBeTruthy();
     cleanup();
   }
@@ -89,4 +98,32 @@ it("renders in Armenian and Russian and translates every status the server can r
   };
   const keys = Object.entries(states).flatMap(([prefix, values]) => values.map((v) => `adm.${prefix}.${v}`));
   for (const dict of [en, hy, ru] as Record<string, string>[]) for (const key of keys) expect(dict[key], key).toBeTruthy();
+});
+
+it("requires the client for several ticked computers at once", async () => {
+  const modal = renderWith(<AdmissionPage />);
+  const button = screen.getByRole("button", { name: new RegExp(en["adm.requireSelected"]) }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText(en["adm.selectRow"] + " Laptop-07"));
+  expect(button.disabled).toBe(false);
+  fireEvent.click(button);
+  const spec = modal.mock.calls[0][0];
+  expect(spec.fields.map((f: any) => f.name)).toEqual(["router_id", "reason"]);
+  const { api } = await import("../src/api/client");
+  await spec.submit({ router_id: "r1", reason: "two laptops" });
+  expect(api).toHaveBeenCalledWith("/admission/selected", "POST", { router_id: "r1", reason: "two laptops", device_ids: ["d1"] });
+});
+
+it("applies a network rule only after the restricted-host count is typed", async () => {
+  const modal = renderWith(<AdmissionPage />);
+  expect(screen.getByText("192.168.88.0/24")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: en["adm.subnetPreview"] }));
+  await act(async () => { await modal.mock.calls[0][0].submit({ reason: "enforce floor" }); });
+  expect(screen.getByText("192.168.88.52")).toBeTruthy();
+  const apply = screen.getByRole("button", { name: en["adm.applyPlan"] }) as HTMLButtonElement;
+  expect(apply.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText(en["adm.confirmRestricted"]), { target: { value: "1" } });
+  expect(apply.disabled).toBe(false);
+  for (const dict of [en, hy, ru] as Record<string, string>[])
+    for (const state of ["PREPARING", "PREVIEW", "INSTALLED", "REMOVING", "ERROR", "NOT_INSTALLED"]) expect(dict["adm.subnetState." + state]).toBeTruthy();
 });

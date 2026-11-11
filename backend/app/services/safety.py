@@ -99,7 +99,8 @@ class GuardedRouter:
 
 
 def firewall_shape(operation):
-    """Suro writes firewall rules only to gate one computer: owned admission drop rules and grants, nothing else."""
+    """Suro writes only admission firewall entries: owned drop rules for one computer (per-MAC gate) or for the
+    non-admitted sources of one subnet (subnet gate, IPv4 only), and owned address-list grants. Nothing else."""
     path = operation["path"]
     if path not in ("ip/firewall/filter", "ipv6/firewall/filter", "ip/firewall/address-list"):
         return
@@ -112,6 +113,17 @@ def firewall_shape(operation):
         raise ValueError("network.firewall_rule_not_owned")
     data = operation.get("data", {})
     if operation["method"] == "PUT" and path != "ip/firewall/address-list":
-        # Never an accept/jump rule and never one that could match more than this computer.
-        if data.get("action") != "drop" or not data.get("src-mac-address") or data.get("chain") not in ("forward", "input"):
+        # Never an accept/jump rule. A per-computer gate matches one MAC; a subnet gate must exclude suro-admitted.
+        if data.get("action") != "drop" or data.get("chain") not in ("forward", "input"):
+            raise ValueError("network.firewall_rule_not_allowed")
+        if str(comment).startswith("lantern:subnet:"):
+            from ipaddress import ip_network
+            try:
+                network = ip_network(str(data.get("src-address", "")), strict=True)
+            except ValueError:
+                raise ValueError("network.firewall_rule_not_allowed") from None
+            if (path != "ip/firewall/filter" or network.version != 4 or network.prefixlen < 16 or data.get("src-mac-address")
+                    or data.get("src-address-list") != "!suro-admitted"):
+                raise ValueError("network.firewall_rule_not_allowed")
+        elif not data.get("src-mac-address"):
             raise ValueError("network.firewall_rule_not_allowed")

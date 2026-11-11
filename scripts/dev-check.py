@@ -27,6 +27,7 @@ def commands(area, dotnet=None):
             raise SystemExit(".NET 10 is required; set DOTNET_BIN or --dotnet.")
         return [([binary, "build", "agent/src/NetworkPolicyClient.csproj", "-c", "Release"], ROOT),
                 ([binary, "build", "agent/ui/Suro.Identity.UI.csproj", "-c", "Release"], ROOT),
+                ([binary, "build", "agent/setup/SuroSetup.csproj", "-c", "Release"], ROOT),
                 ([binary, "run", "--project", "agent/tests/AgentContractTests.csproj", "-c", "Release"], ROOT)]
     return [([str(python), "scripts/check_docs.py"], ROOT)]
 

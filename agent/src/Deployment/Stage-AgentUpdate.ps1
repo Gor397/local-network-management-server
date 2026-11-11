@@ -1,21 +1,28 @@
 param([Parameter(Mandatory)][string]$ManifestFile, [Parameter(Mandatory)][string]$PackageFile)
 $ErrorActionPreference = 'Stop'
 $m = Get-Content -LiteralPath $ManifestFile -Raw | ConvertFrom-Json
-if ($m.kind -ne 'agent_update' -or [IO.Path]::GetExtension($PackageFile) -ne '.msi') { throw 'Signed MSI update required' }
+$extension = [IO.Path]::GetExtension($PackageFile).ToLowerInvariant()
+if ($m.kind -ne 'agent_update' -or $extension -notin @('.msi', '.exe')) { throw 'Suro setup (.exe) or signed MSI update required' }
+# The hash comes from the server-signed task manifest the agent already verified; it is the integrity anchor.
 if ((Get-FileHash -LiteralPath $PackageFile -Algorithm SHA256).Hash -ne $m.sha256) { throw 'Hash mismatch' }
-$signature = Get-AuthenticodeSignature -LiteralPath $PackageFile
-if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $m.publisher_thumbprint) { throw 'Untrusted update publisher' }
 $config = Get-Content "$env:ProgramData\Lantern\config.json" -Raw | ConvertFrom-Json
-if ($m.publisher_thumbprint -ne $config.agent_publisher_thumbprint) { throw 'Agent update signer must match pinned publisher' }
+# A client installed from a signed build stays pinned to that publisher; an unsigned build has no pin to keep.
+if ($config.agent_publisher_thumbprint -or $extension -eq '.msi') {
+    $signature = Get-AuthenticodeSignature -LiteralPath $PackageFile
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $m.publisher_thumbprint) { throw 'Untrusted update publisher' }
+    if ($m.publisher_thumbprint -ne $config.agent_publisher_thumbprint) { throw 'Agent update signer must match pinned publisher' }
+}
 if(-not $m.metadata.expected_version){throw 'Expected agent version required'}
 $build=[int](Get-CimInstance Win32_OperatingSystem).BuildNumber
-$arch=[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-if($build -lt $m.metadata.minimum_build -or $build -gt $m.metadata.maximum_build -or $arch -ne $m.metadata.architecture){throw 'Incompatible agent update'}
+$arch=if([Environment]::Is64BitOperatingSystem){'x64'}else{'x86'}
+# 'any' is the universal SuroSetup.exe, which carries both the 64-bit and the 32-bit client.
+if($build -lt $m.metadata.minimum_build -or $build -gt $m.metadata.maximum_build -or ($m.metadata.architecture -notin @($arch,'any'))){throw 'Incompatible agent update'}
 $current=(Get-Item (Join-Path $env:ProgramFiles 'Lantern Policy Agent\NetworkPolicyClient.exe')).VersionInfo.FileVersion
 if([version]$m.metadata.expected_version -lt [version]$current){throw 'Agent downgrade requires the documented recovery procedure'}
 
 $script=Join-Path $PSScriptRoot 'Complete-AgentUpdate.ps1'
-$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument "-NoProfile -NonInteractive -ExecutionPolicy AllSigned -File `"$script`" -ManifestFile `"$ManifestFile`" -PackageFile `"$PackageFile`""
+$policy=if((Get-AuthenticodeSignature -LiteralPath $PSCommandPath).Status -eq 'Valid'){'AllSigned'}else{'Bypass'}
+$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument "-NoProfile -NonInteractive -ExecutionPolicy $policy -File `"$script`" -ManifestFile `"$ManifestFile`" -PackageFile `"$PackageFile`""
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest -LogonType ServiceAccount
 Register-ScheduledTask -TaskName 'LanternApprovedAgentUpdate' -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null

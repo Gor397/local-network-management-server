@@ -91,6 +91,8 @@ async def execute_plan(app, db, plan, actor_id):
     applied = []
     backup = None
     admission=plan.result.get('admission')
+    # Router-level admission plans (several computers or a subnet) name the comment prefixes they own.
+    owned_prefixes = tuple(plan.result.get("owned_prefixes") or [f"lantern:{plan.device_id}:"])
     try:
         async with connector(app, router) as api:
             before = await asyncio.wait_for(api.discovery(), timeout=90)
@@ -108,7 +110,7 @@ async def execute_plan(app, db, plan, actor_id):
                 # Mutation ownership is revalidated against the current before-state.
                 if operation["method"] in ("PATCH", "DELETE") and not operation["path"].endswith("registration-table"):
                     row = next((r for r in before["snapshot"].get(operation["path"], []) if r.get(".id") == operation.get("id")), {})
-                    if not row.get("comment", "").startswith(f"lantern:{plan.device_id}:"):
+                    if not row.get("comment", "").startswith(owned_prefixes):
                         raise ValueError("network.unmanaged_entry")
                 result = await api.apply(operation)
                 applied.append({"operation": operation, "created_id": result.get(".id") if isinstance(result, dict) else None})

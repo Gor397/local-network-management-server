@@ -15,7 +15,7 @@ All paths below are relative to the repository root. Start with the smallest row
 | Cryptography | `backend/app/security/crypto.py` | `Vault`, RSA policy signatures, device certificate issuance |
 | Inventory and exceptions | `backend/app/api/devices.py`, `backend/app/services/devices.py` | Registration, effective state, reassessment, alert deduplication |
 | Declarative schema and check catalog | `backend/app/policies/schema.py` | `PolicyDocument`, `CATALOG`, `merge_layers` |
-| Mandatory Suro Client (network admission) | `backend/app/services/admission_gate.py`, `admission_sync.py`, `api/admission.py`, `api/onboarding.py` | Per-MAC router gate, timed grants, onboarding page; see [client admission](client-admission.md) |
+| Mandatory Suro Client (network admission) | `backend/app/services/admission_gate.py`, `admission_sync.py`, `api/admission.py`, `api/onboarding.py` | One computer, a list, or all computers of a subnet except exceptions (`AdmissionSubnet`); timed grants; onboarding page and personalised setup download; see [client admission](client-admission.md) |
 | Visual editor catalog | `backend/app/policies/catalog.py` | `SETTINGS` (controls, enforcement, risk), templates, `diff`, `server_checks`, `agent_document`; see [policy editor](policy-editor.md) |
 | Policy layering | `backend/app/policies/resolver.py` | Global/class/group/device applicability |
 | Publication and assignment | `backend/app/api/policies.py` | Immutable versions, optimistic concurrency, invalidation |
@@ -72,7 +72,9 @@ Program.cs
 | User language | `Deployment/Configure-Locale.ps1`, `Apply-UserLocale.ps1` | User preferences run as the user at logon, not as SYSTEM |
 | User identity IPC | `Enrollment/IdentityPipeService.cs`, `agent/ui/` | Separate WinForms process; authenticated local pipe, real token SID, protected retry outbox |
 | Bounded Wi-Fi observations | `Monitoring/DiagnosticsBuffer.cs` | Native WLAN API, event IDs, bounded disk cache and signed upload |
-| MSI | `agent/installer/` | WiX, signing, ACLs, SCM permissions and enrollment wrapper |
+| One-file setup | `agent/setup/` (`Installer.cs`), built by `scripts/build-client.py` | .NET Framework 4.6.2 bootstrapper with x64 + x86 payloads; reads server settings appended on download; see [building the client](building-the-client.md) |
+| Script integrity | `Service/PowerShell.cs` | Bundled scripts are embedded at build time; unchanged → Bypass, signed → AllSigned, otherwise refused |
+| MSI (optional, signed) | `agent/installer/` | WiX, signing, ACLs, SCM permissions and enrollment wrapper |
 
 Paths in this table are relative to `agent/src/` unless explicitly stated otherwise.
 

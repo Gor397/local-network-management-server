@@ -1,14 +1,22 @@
 """Public local onboarding page for computers that must install the Suro Client.
 
 Served over plain HTTP on the LAN by the proxy's onboarding listener (no certificate warnings, no internet).
-It contains no secrets: the installer is the administrator-approved, Authenticode-signed Suro MSI, and the
-client enrolls over pinned HTTPS afterwards. Nothing here grants network access.
+It contains no secrets: the installer is the administrator-approved Suro setup (SuroSetup.exe, or a signed MSI),
+and the client enrolls over pinned HTTPS afterwards. Nothing here grants network access.
+
+An unsigned SuroSetup.exe is built once for every site (scripts/build-client.py). When it is downloaded here, the
+server appends its own public settings (address, policy-signing public key, TLS certificate fingerprint, language)
+so the person at the computer only clicks the button and confirms Windows' prompt; see `site_settings`.
 """
 
+import hashlib
 import html
+import json
+import struct
 from ipaddress import ip_address, ip_network
+from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from sqlalchemy import select
 from app.auth.dependencies import db_session
 from app.models import Device, NetworkAdmission, SoftwarePackage
@@ -21,7 +29,7 @@ TEXT = {
         "lead": "Այս ցանցից օգտվելու համար անհրաժեշտ է տեղադրել Suro ծրագիրը։",
         "install": "Տեղադրել Suro ծրագիրը",
         "unavailable": "Տեղադրման ֆայլը դեռ պատրաստ չէ։ Դիմեք ադմինիստրատորին։",
-        "steps": ["Սեղմեք «Տեղադրել Suro ծրագիրը» կոճակը։", "Բացեք ներբեռնված ֆայլը և Windows-ի հարցմանը պատասխանեք «Այո»։",
+        "steps": ["Սեղմեք «Տեղադրել Suro ծրագիրը» կոճակը։", "Բրաուզերում բացեք ներբեռնված SuroSetup ֆայլը և Windows-ի հարցմանը պատասխանեք «Այո»։ Տեղադրումն ավարտվում է ինքնուրույն։",
                   "Լրացրեք Ձեր անունը, ազգանունը և, առկայության դեպքում, զինվորական կոչումը։",
                   "Սեղմեք «Սկսել աշխատանքը»։ Ադմինիստրատորի հաստատումից հետո ցանցը կբացվի։"],
         "start": "Սկսել աշխատանքը",
@@ -31,7 +39,8 @@ TEXT = {
                    "RESTRICTED": "Suro ծրագիրը դեռ չի աշխատում այս համակարգչում։ Տեղադրեք այն կամ դիմեք ադմինիստրատորին։",
                    "UNKNOWN": "Այս համակարգիչը դեռ չի ճանաչվել։ Տեղադրեք Suro ծրագիրը, ապա կրկին սեղմեք։"},
         "trouble": "Եթե ինչ-որ բան չի ստացվում",
-        "tips": ["Եթե Windows-ը չի թույլատրում տեղադրումը, դիմեք ադմինիստրատորին. նա կարող է տեղադրել ծրագիրը Ձեր համակարգչում։",
+        "tips": ["Եթե Windows-ը ցույց է տալիս «Windows-ը պաշտպանեց Ձեր համակարգիչը», սեղմեք «Մանրամասն», ապա «Գործարկել ամեն դեպքում»։",
+                 "Եթե Windows-ը պահանջում է ադմինիստրատորի գաղտնաբառ, դիմեք ադմինիստրատորին. նա կարող է տեղադրել ծրագիրը Ձեր համակարգչում։",
                  "Եթե այս էջն ինքնուրույն չի բացվել, բրաուզերում մուտքագրեք այս էջի հասցեն, որը Ձեզ տվել է ադմինիստրատորը։",
                  "Մի անջատեք հակավիրուսը կամ Windows-ի պաշտպանությունը։ Դա անհրաժեշտ չէ։"],
         "verify": "Ֆայլի ստուգում",
@@ -41,7 +50,7 @@ TEXT = {
         "lead": "Чтобы пользоваться этой сетью, установите программу Suro.",
         "install": "Установить программу Suro",
         "unavailable": "Установочный файл ещё не готов. Обратитесь к администратору.",
-        "steps": ["Нажмите кнопку «Установить программу Suro».", "Откройте загруженный файл и ответьте «Да» на запрос Windows.",
+        "steps": ["Нажмите кнопку «Установить программу Suro».", "Откройте в браузере загруженный файл SuroSetup и ответьте «Да» на запрос Windows. Установка завершится сама.",
                   "Укажите имя, фамилию и, если есть, воинское звание.",
                   "Нажмите «Начать работу». После подтверждения администратором сеть откроется."],
         "start": "Начать работу",
@@ -51,7 +60,8 @@ TEXT = {
                    "RESTRICTED": "Программа Suro на этом компьютере пока не работает. Установите её или обратитесь к администратору.",
                    "UNKNOWN": "Этот компьютер ещё не опознан. Установите программу Suro и нажмите снова."},
         "trouble": "Если что-то не получается",
-        "tips": ["Если Windows не разрешает установку, обратитесь к администратору: он может установить программу на ваш компьютер.",
+        "tips": ["Если Windows показывает «Система Windows защитила ваш компьютер», нажмите «Подробнее», затем «Выполнить в любом случае».",
+                 "Если Windows запрашивает пароль администратора, обратитесь к администратору: он может установить программу на ваш компьютер.",
                  "Если эта страница не открылась сама, введите в браузере адрес, который дал администратор.",
                  "Не отключайте антивирус и защиту Windows. Это не нужно."],
         "verify": "Проверка файла",
@@ -61,7 +71,7 @@ TEXT = {
         "lead": "To use this network, install the Suro program.",
         "install": "Install the Suro program",
         "unavailable": "The installer is not ready yet. Please contact your administrator.",
-        "steps": ["Click “Install the Suro program”.", "Open the downloaded file and answer “Yes” when Windows asks.",
+        "steps": ["Click “Install the Suro program”.", "Open the downloaded SuroSetup file in your browser and answer “Yes” when Windows asks. Setup finishes by itself.",
                   "Enter your first name, surname and, if you have one, military rank.",
                   "Click “Start working”. The network opens after an administrator approves the computer."],
         "start": "Start working",
@@ -71,7 +81,8 @@ TEXT = {
                    "RESTRICTED": "Suro is not running on this computer yet. Install it or contact your administrator.",
                    "UNKNOWN": "This computer is not recognised yet. Install Suro, then click again."},
         "trouble": "If something does not work",
-        "tips": ["If Windows does not allow the installation, ask your administrator; they can install the program for you.",
+        "tips": ["If Windows shows “Windows protected your PC”, click “More info”, then “Run anyway”.",
+                 "If Windows asks for an administrator password, ask your administrator; they can install the program for you.",
                  "If this page did not open by itself, type the address your administrator gave you into the browser.",
                  "Do not switch off antivirus or Windows protection. It is not needed."],
         "verify": "File check",
@@ -95,6 +106,45 @@ def _installer(db):
                      .order_by(SoftwarePackage.created_at.desc()))
 
 
+TRAILER_MAGIC = b"SUROCFG1"
+SETUP_FILENAME = "SuroSetup.exe"
+
+
+def site_settings(settings, package=None, language="hy"):
+    """Public settings a new client needs to trust this server. Never a token or any other secret.
+
+    `server` is PUBLIC_ORIGIN, so it must be an HTTPS address the computers can reach (not localhost). The TLS
+    fingerprint pins the self-signed server certificate; the policy-signing key verifies every policy and task.
+    """
+    origin = settings.public_origin.rstrip("/")
+    parts = urlsplit(origin)
+    if parts.scheme != "https" or (parts.hostname or "") in ("localhost", "127.0.0.1", "::1") or parts.path or parts.query:
+        raise ValueError("onboarding.public_origin_not_reachable")
+    key = settings.data_dir / "keys" / "signing.pub"
+    if not key.is_file():
+        raise ValueError("onboarding.signing_key_missing")
+    site = {"server": origin, "signing_public_key": key.read_text(encoding="ascii"),
+            "agent_publisher_thumbprint": (package.publisher_thumbprint if package else "") or "",
+            "ui_language": language if language in TEXT else "hy"}
+    certificate = settings.data_dir / "tls" / "server.crt"
+    if certificate.is_file():
+        from cryptography import x509
+        from cryptography.hazmat.primitives.serialization import Encoding
+        der = x509.load_pem_x509_certificate(certificate.read_bytes()).public_bytes(Encoding.DER)
+        site["server_certificate_sha256"] = hashlib.sha256(der).hexdigest()
+    return site
+
+
+def setup_trailer(site):
+    """Read by agent/setup/Installer.cs ReadTrailer: UTF-8 JSON, little-endian length, magic."""
+    data = json.dumps(site, ensure_ascii=False, separators=(",", ":")).encode()
+    return data + struct.pack("<I", len(data)) + TRAILER_MAGIC
+
+
+def _is_setup(package):
+    return package is not None and package.filename.lower().endswith(".exe")
+
+
 @router.get("/onboard", response_class=HTMLResponse)
 def page(lang: str = "hy", db=Depends(db_session)):
     lang = lang if lang in TEXT else "hy"
@@ -102,11 +152,14 @@ def page(lang: str = "hy", db=Depends(db_session)):
     package = _installer(db)
     nav = "".join(f'<a href="/onboard?lang={code}" lang="{code}"{" aria-current=page" if code == lang else ""}>{name}</a>'
                   for code, name in (("hy", "Հայերեն"), ("ru", "Русский"), ("en", "English")))
-    install = (f'<a class="install" href="/onboard/installer" download="SuroSetup.msi">{e(t["install"])}</a>' if package
+    name = SETUP_FILENAME if _is_setup(package) else "SuroSetup.msi"
+    install = (f'<a class="install" href="/onboard/installer?lang={lang}" download="{name}">{e(t["install"])}</a>' if package
                else f'<p class="warn" role="alert">{e(t["unavailable"])}</p>')
     messages = "".join(f' data-{k.lower().replace("_", "-")}="{e(v)}"' for k, v in t["status"].items())
-    verify = (f'<p>{e(t["verify"])}: SHA-256 <code>{e(package.sha256)}</code>'
-              f'{f" · {e(package.publisher_thumbprint)}" if package.publisher_thumbprint else ""}</p>' if package else "")
+    # An unsigned setup is personalised for this server on download, so its hash differs from the stored package.
+    verify = (f'<p>{e(t["verify"])}: {e((package.metadata_ or {}).get("expected_version") or "")} · '
+              f'SHA-256 <code>{e(package.sha256)}</code>{f" · {e(package.publisher_thumbprint)}" if package.publisher_thumbprint else ""}</p>'
+              if package else "")
     body = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{e(t["title"])}</title><style>{STYLE}</style></head><body><header><span>SURO</span><nav aria-label="Language">{nav}</nav></header>
 <main><section><h1>{e(t["title"])}</h1><p>{e(t["lead"])}</p>{install}<ol>{"".join(f"<li>{e(s)}</li>" for s in t["steps"])}</ol>
@@ -129,13 +182,31 @@ def script():
 
 
 @router.get("/onboard/installer")
-def installer(request: Request, db=Depends(db_session)):
+def installer(request: Request, lang: str = "hy", db=Depends(db_session)):
     package = _installer(db)
     path = request.app.state.settings.data_dir / "repository" / "objects" / package.sha256 if package else None
     if not package or not path.is_file() or path.stat().st_size != package.size:
         raise HTTPException(404, "onboarding.installer_unavailable")
-    # Streamed from disk; the whole MSI is never held in memory.
-    return FileResponse(path, media_type="application/x-msi", filename="SuroSetup.msi")
+    if not _is_setup(package):
+        # Streamed from disk; the whole MSI is never held in memory.
+        return FileResponse(path, media_type="application/x-msi", filename="SuroSetup.msi")
+    headers = {"Content-Disposition": f'attachment; filename="{SETUP_FILENAME}"', "Cache-Control": "no-store",
+               "X-Content-Type-Options": "nosniff"}
+    if package.publisher_thumbprint:
+        # Appending would void the Authenticode signature; a signed setup carries its settings (build --site).
+        return FileResponse(path, media_type="application/octet-stream", filename=SETUP_FILENAME, headers=headers)
+    try:
+        trailer = setup_trailer(site_settings(request.app.state.settings, package, lang))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+
+    def stream():
+        with path.open("rb") as file:
+            while chunk := file.read(1024 * 1024):
+                yield chunk
+        yield trailer
+    return StreamingResponse(stream(), media_type="application/octet-stream",
+                             headers={**headers, "Content-Length": str(package.size + len(trailer))})
 
 
 def client_ip(request):
@@ -170,7 +241,7 @@ def _by_router_lease(request, db, ip):
 def status(request: Request, db=Depends(db_session)):
     """Coarse state for the requesting computer only; no names, MACs or other computers are disclosed."""
     from app.services import admission_gate as gate
-    from app.services.admission_sync import credential_active, get_policy
+    from app.services.admission_sync import credential_active, enforced, get_policy
     from app.services.devices import effective_state
     from app.models import Enrollment
     from app.db import utcnow
@@ -186,5 +257,5 @@ def status(request: Request, db=Depends(db_session)):
                                                          Enrollment.csr.is_not(None), Enrollment.expires_at > utcnow()))
         return {"state": "WAITING_APPROVAL" if pending else "RESTRICTED"}
     desired, _ = gate.evaluate(device, admission, get_policy(db), True, effective_state(device, request.app.state.settings)[0])
-    state = gate.network_state(admission, desired)
+    state = gate.network_state(admission, desired, enforced=enforced(db, admission))
     return {"state": state if state in ("AUTHORIZED", "AUTHORIZATION_PENDING") else "RESTRICTED"}

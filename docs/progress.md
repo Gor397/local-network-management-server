@@ -1,5 +1,27 @@
 # Implementation and verification ledger
 
+## 2026-11-11 one-file client and requirement scopes (Claude Code)
+
+| Area | Implemented | Automated evidence | Still unverified |
+|---|---|---|---|
+| `SuroSetup.exe` | `agent/setup/` .NET Framework 4.6.2 bootstrapper with embedded x64 + x86 payloads (service and identity window sharing one self-contained runtime); one UAC prompt; protected state/program ACLs, service/SCM/failure settings, Run and uninstall entries, `install-manifest.json`; `/quiet` for updates; `scripts/build-client.py` / `make client` on Linux or Windows; no certificate, WiX or per-site build ([guide](developers/building-the-client.md)) | Linux build produced a 93 MiB universal setup (payloads 48.2 / 44.8 MiB); setup project compiles in `dev-check --area agent` | Any execution on Windows: install, repair, update, uninstall, SmartScreen/UAC wording, 32-bit Windows 10, Windows 10 1607 |
+| Unsigned integrity | Bundled scripts embedded in the service; unchanged → Bypass, signed → AllSigned, otherwise refused; scheduled-task children inherit the mode; `agent.integrity_valid` from the install manifest when no publisher is pinned; agent updates accept the setup (hash from the signed task, publisher only when pinned); architecture `any` | 5 new contract tests (15 total passed) | PowerShell execution and inspector output on Windows |
+| Windows 10 / 32-bit | Minimum build 14393 (package default and technician script); native PowerShell from a 32-bit process; P/Invoke layouts reviewed for x86 | Cross-build of win-x64 and win-x86 | Behavior on real 32-bit Windows 10 |
+| Personalised download | `/onboard/installer` appends the server's public settings (origin, signing key, TLS fingerprint, chosen language) to an unsigned setup; signed files are served unchanged; `GET /admission/site-config` | `test_onboarding_download_carries_this_servers_settings` | Browser download behavior on Windows |
+| Requirement scopes | One computer; a list (`/admission/selected`, one router plan for up to 50); all computers of a subnet except exceptions (`AdmissionSubnet`, migration `0011`, PREPARING grants → preview with every restricted host → typed count → apply; removal; newcomer portal enrollment still admin-approved); exceptions by MAC; approval in the admission panel; HY/RU/EN UI and help | `test_admission_scopes.py` (5) against the fake RouterOS through `GuardedRouter`; dashboard `admission.test.tsx` (6) | Any real router: subnet rule placement/readback on RouterOS 6.49 and 7, CAPsMAN datapath forwarding, IPv6 (not covered by subnet rules), load with hundreds of grants |
+
+Backend: **159 passed**. Dashboard: **33 passed**, production build passed. Agent: Release cross-build and **15 contract tests passed** (SDK installed only in the session scratchpad). No router, endpoint or Windows machine was contacted.
+
+## 2026-11-05 local startup diagnosis
+
+`make up` previously failed with "No rule to make target 'up'". It now aliases the isolated `make lab` workflow (prepare, build, start on `https://localhost:18443`). The retained `lantern-lab` containers are stopped and their PostgreSQL volume still exists, but `/tmp/lantern-lab.env` and `/tmp/lantern-lab-data` are missing. Running the corrected command reached the preservation guard and stopped before generating keys or modifying retained storage. Startup remains blocked until matching configuration/keys are restored or a separate fresh lab is selected. Validation: developer-helper tests **4 passed**, documentation check passed (**33 files**), Make dry-run selected only the lab helper, and diff whitespace check passed. No successful runtime/HTTPS verification is claimed for this session.
+
+## 2026-11-03 developer laptop network investigation
+
+The retained `lantern-lab` worker, backend and web containers were repeatedly exiting with code 1 and restarting under `unless-stopped`. Their temporary environment/signing keys were missing and their TLS directory was empty. A ten-minute host journal sample contained 120 new virtual interfaces, 60 application restarts, zero Wi-Fi state changes and zero default-route/DNS policy changes. This is a likely cause of browser network-change interruptions; browser error-code correlation and post-fix live verification remain pending.
+
+The lab override now sets `restart: 'no'` on every service so temporary lab mounts cannot trigger automatic startup/crash loops after reboot. The testing guide documents stopping older looping application containers without requiring their missing environment file. Validation: merged Compose configuration has `restart: 'no'` for all five services; documentation check passed (33 files); diff whitespace check passed. Live Docker access was blocked by the execution sandbox, so existing container policies and running state were not changed in this session. Preserve retained database volumes and restore their matching environment/keys before starting this lab again.
+
 Last local verification: **2026-10-30**. This is a development release, not a statement that all requested production behavior is complete.
 
 Legend: **Implemented** means executable source exists; **Automated** means a relevant local test/build passed; **Simulated** means fake external-system responses were used; **Hardware** means actual Windows/RouterOS behavior was observed. A build does not count as hardware verification.

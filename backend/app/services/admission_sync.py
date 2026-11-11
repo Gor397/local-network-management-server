@@ -6,10 +6,11 @@ GuardedRouter, so OPERATION_MODE and per-router write switches apply exactly as 
 """
 
 import asyncio
+import json
 from sqlalchemy import select
 from app.auth.dependencies import audit
 from app.db import utcnow
-from app.models import AdmissionPolicy, Device, DeviceCredential, NetworkAdmission, Router
+from app.models import AdmissionPolicy, AdmissionSubnet, Device, DeviceCredential, NetworkAdmission, Router
 from app.services import admission_gate as gate
 from app.services.devices import effective_state, notify
 
@@ -30,6 +31,18 @@ def credential_active(db, device, now=None):
                                                             DeviceCredential.expires_at > now)))
 
 
+def enforced(db, admission):
+    """False only for a subnet member whose subnet drop rules are not installed: nothing restricts it yet."""
+    if not admission or admission.gate_state != "SUBNET":
+        return True
+    address = admission.granted_ip or admission.reported_ip
+    for subnet in db.scalars(select(AdmissionSubnet).where(AdmissionSubnet.router_id == admission.router_id,
+                                                           AdmissionSubnet.state == "INSTALLED")):
+        if address and gate._inside(address, gate.subnet_network(subnet)):
+            return True
+    return False
+
+
 def decide(db, settings, admission, device, policy, now=None):
     now = now or utcnow()
     desired, reason = gate.evaluate(device, admission, policy, credential_active(db, device, now),
@@ -41,16 +54,68 @@ def decide(db, settings, admission, device, policy, now=None):
     return desired
 
 
+# Per-computer grants are kept for these gate states: an installed per-MAC gate, or membership of a subnet gate.
+MANAGED = ("INSTALLED", "SUBNET")
+
+
+def router_addresses(app, router):
+    """MAC → IPv4 from the router's last stored discovery (ARP and DHCP leases)."""
+    if not router or not router.snapshot:
+        return {}
+    snapshot = json.loads(app.state.vault.open(router.snapshot))
+    addresses = {}
+    for row in snapshot.get("ip/dhcp-server/lease", []) + snapshot.get("ip/arp", []):
+        mac, address = str(row.get("mac-address", "")).upper(), row.get("address")
+        if mac and address and row.get("invalid") != "true":
+            addresses.setdefault(mac, address)
+    return addresses
+
+
+def enroll_subnets(app, db):
+    """"All computers except exceptions": every known computer whose address lies in a gated subnet gets a
+    per-computer admission (source ALL), so its grant is kept like a pilot's: timed for a running client,
+    permanent for an exception. Computers under a per-MAC (pilot) gate keep that gate."""
+    subnets = db.scalars(select(AdmissionSubnet).where(AdmissionSubnet.state != "NOT_INSTALLED")).all()
+    if not subnets:
+        return 0
+    admissions = {a.device_id: a for a in db.scalars(select(NetworkAdmission))}
+    addresses = {r: router_addresses(app, db.get(Router, r)) for r in {s.router_id for s in subnets}}
+    added = 0
+    for device in db.scalars(select(Device).where(Device.enabled.is_(True))):
+        admission = admissions.get(device.id)
+        if admission and admission.source != "ALL":
+            continue
+        for subnet in subnets:
+            address = (admission.reported_ip if admission and admission.router_id == subnet.router_id else None) \
+                or addresses[subnet.router_id].get(device.primary_mac)
+            if not address or not gate._inside(address, gate.subnet_network(subnet)):
+                continue
+            if not admission:
+                admission = NetworkAdmission(device_id=device.id, source="ALL", revision=0)
+                db.add(admission)
+                admissions[device.id] = admission
+                added += 1
+                audit(db, "admission-worker", "admission.subnet_member", device.id, subnet_id=subnet.id, cidr=subnet.cidr)
+            if admission.router_id != subnet.router_id or admission.gate_state != "SUBNET" or not admission.enabled:
+                admission.router_id, admission.gate_state, admission.enabled = subnet.router_id, "SUBNET", True
+                admission.revision = (admission.revision or 0) + 1
+            break
+    db.flush()
+    return added
+
+
 async def reconcile(app, db, now=None):
     now = now or utcnow()
     settings = app.state.settings
     policy = get_policy(db)
     ttl = gate.ttl_seconds(policy)
+    if policy.mode == "ALL":
+        enroll_subnets(app, db)
     work = {}
     for admission in db.scalars(select(NetworkAdmission)):
         device = db.get(Device, admission.device_id)
         desired = decide(db, settings, admission, device, policy, now)
-        if admission.gate_state != "INSTALLED" or not admission.router_id:
+        if admission.gate_state not in MANAGED or not admission.router_id:
             continue
         # With the gate installed, an exempt or no-longer-required computer must be let through, permanently.
         grant, lifetime = ("AUTHORIZED", 0) if desired in ("EXEMPT", "NOT_REQUIRED") else (desired, ttl)

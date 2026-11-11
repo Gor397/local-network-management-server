@@ -172,11 +172,11 @@ def test_snapshot_hash_ignores_counters_and_timed_entries():
     assert snapshot_hash(a) == snapshot_hash(b)
 
 
-def test_policy_starts_disabled_and_network_wide_modes_are_refused(admin, client, app):
+def test_policy_starts_disabled_and_group_mode_is_refused(admin, client, app):
     current = admin.get("/api/v1/admission/policy").json()
     assert current["mode"] == "DISABLED"
     body = {**{k: v for k, v in current.items() if k not in ("group_ids", "updated_at")}, "reason": "enable everywhere"}
-    assert admin.put("/api/v1/admission/policy", json={**body, "mode": "ALL"}).json()["error"]["code"] == "admission.mode_requires_staged_rollout"
+    assert admin.put("/api/v1/admission/policy", json={**body, "mode": "GROUPS"}).json()["error"]["code"] == "admission.mode_requires_staged_rollout"
     assert admin.put("/api/v1/admission/policy", json={**body, "mode": "PILOT", "heartbeat_timeout_seconds": 10}).status_code == 422
     assert admin.put("/api/v1/admission/policy", json={**body, "mode": "PILOT"}).json()["mode"] == "PILOT"
 

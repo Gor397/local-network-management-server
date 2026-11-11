@@ -16,7 +16,7 @@ Suro is an audit-first management server for Windows endpoints and MikroTik infr
 
 ## Run the server
 
-`make help` lists every command. Production in short: `make prod-bootstrap LAN_IP=192.168.88.10`, `make prod-build`, `make prod-up`, `make prod-admin`. Development in short: `make install`, `make check`, `make lab`. On a dual-homed laptop, read [dual-network setup](docs/development/dual-network-setup.md) first.
+`make help` lists every command. Production in short: `make prod-bootstrap LAN_IP=192.168.88.10`, `make prod-build`, `make prod-up`, `make prod-admin`. Development in short: `make install`, `make check`, `make up` (or `make lab`). On a dual-homed laptop, read [dual-network setup](docs/development/dual-network-setup.md) first.
 
 On a Linux host with Docker Engine, a recent Docker Compose plugin, and OpenSSL:
 
@@ -52,11 +52,13 @@ dotnet build agent/ui/Suro.Identity.UI.csproj -c Release
 dotnet run --project agent/tests/AgentContractTests.csproj -c Release
 ```
 
-Build a signed installer on Windows with a code-signing certificate:
+Build the one-file client installer (`dist/client/SuroSetup.exe`, Windows 10/11, 64- and 32-bit) on Linux or Windows. No certificate is needed; see [building the client](docs/developers/building-the-client.md):
 
-```powershell
-pwsh -File agent/installer/Build-Installer.ps1 -SigningCertificateThumbprint YOUR_CERTIFICATE_THUMBPRINT
+```sh
+make client
 ```
+
+The older signed WiX MSI is optional: `pwsh -File agent/installer/Build-Installer.ps1 -SigningCertificateThumbprint YOUR_CERTIFICATE_THUMBPRINT` on Windows.
 
 After dependencies are installed, `python3 scripts/dev-check.py --area backend` and the corresponding `frontend`, `agent`, or `docs` area run focused checks. `--area all` runs the complete local set. They never deploy, enroll endpoints, or contact routers.
 
@@ -68,7 +70,8 @@ backend/migrations/ Alembic schema history
 backend/tests/      Server, protocol, migration and simulated RouterOS tests
 agent/src/          Windows Service and bundled, allowlisted PowerShell operations
 agent/ui/           Separate Armenian-first user-session identification helper
-agent/installer/    WiX MSI project, signing and installation tooling
+agent/setup/        One-file SuroSetup.exe (built by scripts/build-client.py)
+agent/installer/    Optional signed WiX MSI project and technician tooling
 agent/tests/        Cross-platform cryptographic contract tests
 frontend/src/       React dashboard and English/Armenian/Russian catalogs
 infrastructure/     Docker images, HTTPS proxy and isolated lab overrides

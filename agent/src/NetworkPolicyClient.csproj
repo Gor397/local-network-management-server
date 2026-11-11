@@ -2,12 +2,15 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework><EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><OutputType>Exe</OutputType>
-    <AssemblyName>NetworkPolicyClient</AssemblyName><Version>0.3.0</Version><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>NetworkPolicyClient</AssemblyName><Version>0.4.0</Version><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Product>Suro</Product><Title>Suro Network Policy Client</Title><Company>Suro Project</Company>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0"/>
     <PackageReference Include="Microsoft.Extensions.Logging.EventLog" Version="10.0.0"/>
     <None Update="**/*.ps1" CopyToOutputDirectory="PreserveNewest"/>
+    <!-- The same scripts embedded in the executable: PowerShell.Run compares the installed copy before running it,
+         so an unsigned build needs no code-signing certificate for script integrity. -->
+    <EmbeddedResource Include="**/*.ps1" Exclude="$(DefaultItemExcludes)" LogicalName="suro-script:%(RecursiveDir)%(Filename)%(Extension)"/>
   </ItemGroup>
 </Project>

@@ -26,8 +26,10 @@ def run(arguments, **kwargs):
     return subprocess.run(arguments, cwd=ROOT, check=True, **kwargs)
 
 
-def prepare():
+def prepare(fresh=False):
     if ENV.exists():
+        if fresh:
+            raise SystemExit("Existing lab configuration preserved. Fresh preparation requires an absent lab env and empty data directory.")
         text = ENV.read_text()
         if f"PUBLIC_ORIGIN={ORIGIN}\n" not in text or f"LAB_DATA_DIR={DATA}\n" not in text:
             raise SystemExit("Existing lab configuration does not match fixed safe paths; preserved without modification.")
@@ -39,7 +41,7 @@ def prepare():
                               capture_output=True, text=True, check=False)
     if retained.returncode:
         raise SystemExit("Cannot inspect retained lab storage. Start Docker before preparing test keys.")
-    if retained.stdout.strip():
+    if retained.stdout.strip() and not fresh:
         raise SystemExit("Retained lab database found without its matching configuration. Restore /tmp/lantern-lab.env and /tmp/lantern-lab-data from the same backup; existing volumes were preserved and no keys generated.")
     (DATA / "keys").mkdir(parents=True, exist_ok=True, mode=0o700)
     (DATA / "tls").mkdir(exist_ok=True)
@@ -57,6 +59,9 @@ def prepare():
               "ENCRYPTION_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(), "DATA_DIR": "/data",
               "PUBLIC_ORIGIN": ORIGIN, "TRUSTED_HOSTS": "localhost,127.0.0.1", "COOKIE_SECURE": "true",
               "LOW_RESOURCE_MODE": "true", "OPERATION_MODE": "read_only", "ROUTER_ALLOWED_NETWORKS": "127.0.0.1/32", "ROUTER_WRITES_ENABLED": "false", "DEPLOYMENT_ENABLED": "false", "SSH_ENABLED": "false", "LANTERN_TAG": "0.1.0"}
+    if fresh:
+        # A new named volume keeps every retained database untouched.
+        values["LAB_POSTGRES_VOLUME"] = "lantern-lab_postgres_fresh_" + uuid.uuid4().hex
     ENV.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
     ENV.chmod(0o600)
     print("Prepared test-only keys and configuration. Build/import images, then run lab.py up.")
@@ -156,9 +161,10 @@ print('Isolated MFA test identity prepared.')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["prepare", "build", "up", "smoke", "down", "logs"])
+    parser.add_argument("action", choices=["prepare", "fresh", "build", "up", "smoke", "down", "logs"])
     action = parser.parse_args().action
     if action == "prepare": prepare()
+    elif action == "fresh": prepare(fresh=True)
     elif action == "build":
         prepare()
         run(COMPOSE + ["build"])

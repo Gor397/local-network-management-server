@@ -34,7 +34,8 @@ KINDS = {
     "language_pack": {".cab"},
     "feature": {".cab"},
     "script": {".ps1"},
-    "agent_update": {".msi"},
+    # SuroSetup.exe (unsigned or signed, see docs/developers/building-the-client.md) or the signed MSI.
+    "agent_update": {".msi", ".exe"},
     "routeros": {".npk"},
 }
 
@@ -74,14 +75,16 @@ class Descriptor(BaseModel):
     size: int = Field(gt=0)
     kind: str
     publisher_thumbprint: str = Field(default="", pattern=r"^(?:[A-Fa-f0-9]{40,64})?$")
+    # "any" only for the universal SuroSetup.exe, which carries both the 64-bit and 32-bit client.
     architecture: Literal[
-        "x64", "arm64", "x86", "arm", "mipsbe", "mmips", "tile", "ppc", "smips"
+        "x64", "arm64", "x86", "arm", "mipsbe", "mmips", "tile", "ppc", "smips", "any"
     ] = "x64"
     release_version: str | None = Field(
         default=None, pattern=r"^[67]\.\d+(?:\.\d+)?(?:[a-z]+\d*)?$"
     )
-    minimum_build: int = Field(default=22000, ge=17763)
-    maximum_build: int = Field(default=99999, ge=17763)
+    # 14393 = Windows 10 1607, the oldest release the .NET 10 client supports.
+    minimum_build: int = Field(default=14393, ge=10240)
+    maximum_build: int = Field(default=99999, ge=10240)
     product_code: str | None = Field(default=None, pattern=r"^\{[0-9A-Fa-f-]{36}\}$")
     feature_name: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]{1,128}$")
     language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}-[A-Za-z]{2,8}$")
@@ -102,11 +105,15 @@ class Descriptor(BaseModel):
             or Path(self.filename).suffix.lower() not in KINDS[self.kind]
         ):
             raise ValueError("package.invalid_type")
-        if self.kind != "routeros" and not self.publisher_thumbprint:
+        setup = self.kind == "agent_update" and Path(self.filename).suffix.lower() == ".exe"
+        # The Suro setup may be unsigned: agents verify it by the SHA-256 in the server-signed task instead.
+        if self.kind != "routeros" and not self.publisher_thumbprint and not setup:
             raise ValueError("package.publisher_required")
+        if self.architecture == "any" and not setup:
+            raise ValueError("package.invalid_architecture")
         if self.kind == "routeros" and not self.release_version:
             raise ValueError("package.version_required")
-        if self.kind in ("msi", "agent_update") and not self.product_code:
+        if self.kind in ("msi", "agent_update") and not setup and not self.product_code:
             raise ValueError("package.product_code_required")
         if self.kind == "feature" and not self.feature_name:
             raise ValueError("package.feature_name_required")

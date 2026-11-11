@@ -35,6 +35,21 @@ python3 scripts/lab.py down
 
 The helper uses project `lantern-lab`, `/tmp/lantern-lab.env`, `/tmp/lantern-lab-data`, and `127.0.0.1:18443`. It never registers a router. Down preserves the database volume; deleting test data is a separate deliberate action.
 
+`make up` is an alias for `make lab`: it prepares the local configuration, builds images and starts the lab. If retained database storage exists but its matching environment and keys are missing, preparation stops without changing that storage. Restore `/tmp/lantern-lab.env` and `/tmp/lantern-lab-data` from the same backup before retrying; a new set of keys cannot decrypt the retained records.
+
+If you deliberately want an empty lab instead, first save the stopped containers' metadata privately for recovery, then run `make lab-fresh` followed by `make up`. Fresh preparation requires the lab environment file to be absent and its data directory to be empty or absent. It generates new test keys and selects a unique `lantern-lab_postgres_fresh_*` volume through `LAB_POSTGRES_VOLUME`; retained database volumes remain untouched. Subsequent lab commands use that selection from `/tmp/lantern-lab.env`. Container metadata can contain secrets and must stay outside version control with restrictive permissions. Temporary lab keys still need a matching durable backup to survive reboot.
+
+Lab services use `restart: 'no'`: start them explicitly with `lab.py up`. The temporary environment, keys and TLS files can disappear after reboot; automatically restarting containers against empty mounts can cause an endless crash loop and frequent virtual-interface changes on the developer laptop. Restore matching configuration and keys before starting a retained lab database.
+
+If an older lab is already looping and its environment file is missing, stop its application containers without Compose:
+
+```sh
+docker update --restart=no lantern-lab-worker-1 lantern-lab-backend-1 lantern-lab-web-1
+docker stop lantern-lab-worker-1 lantern-lab-backend-1 lantern-lab-web-1
+```
+
+This keeps containers, database volumes and existing keys. The updated restart policy in the override applies when containers are next created or updated through Compose.
+
 A passing smoke test should establish HTTPS, API login, dashboard delivery, device registration, policy publication/assignment and authenticated inventory queries against PostgreSQL. It still does not prove router or Windows enforcement.
 
 ## Windows VM acceptance
@@ -58,6 +73,8 @@ Create snapshots before each mutation test. Use a throwaway Windows 11 VM with o
 | Legacy task retirement | On the kursant VM snapshot: retire the task with WinRE, reboot, then migrate the firewall with `replace_legacy_rules`, reboot again | Task Disabled with XML backup; rules unchanged after the first reboot; Suro rules present, legacy rules disabled and heartbeats continuing after the second; forced management failure restores the backup |
 | Policy features | Install agent 0.2 on a VM assigned a policy with `min_d_gb` and `ip_mode=static` plus a device address; then downgrade to 0.1 | 0.2 heartbeat lists features and receives the keys; claims for D: size and IP match `Get-Volume`/`Get-NetIPConfiguration`; loop follows `heartbeat_seconds`; 0.1 still accepts its v1 projection |
 | Client requirement (pilot) | Follow [testing one laptop](client-admission.md#testing-one-laptop) on a CHR or lab router, never the production controller first | Gate rules first in each chain; grant appears/expires; service stop revokes after timeout + grace; removal leaves only manual rules; portal MSI enrolls only after approval; planted `%ProgramData%\Lantern\config.json` by a standard user makes the service refuse to start |
+| One-file setup | Build with `make client`; on Windows 10 1607 x64, Windows 10 x86 and Windows 11 snapshots, download from the onboarding page as a standard user and as an administrator, run, answer UAC; run it again; deploy a higher version as `agent_update`; uninstall from Settings → Apps; edit one installed `.ps1` as administrator | Correct payload per architecture; SmartScreen/UAC prompts as documented; service running as LocalSystem with the documented SCM/ACLs; `site.json` from the download trailer; identity kept across update/uninstall; `install-manifest.json` and `agent.integrity_valid` PASS; edited script refused with integrity FAIL; `setup.log` |
+| Client requirement (list / all) | On a CHR or lab router: tick two computers → batch plan; then mode ALL, add the lab subnet, an exception for a printer MAC, preview, type the count, apply, remove | One plan for both MACs; restricted list equals hosts without grants; unknown host blocked but onboarding page reachable; printer keeps access; newcomer enrollment waits for approval; removal leaves only manual rules |
 | Legacy algorithm | Run only `Convert-MacToUniquePassword` on the vectors in [legacy credentials](legacy-credentials.md#confirming-the-port-against-windows-powershell) | Identical output; no machine change |
 
 Do not simulate Windows success by changing database rows or relaxing unknown checks. Tests should observe actual effective Windows state.

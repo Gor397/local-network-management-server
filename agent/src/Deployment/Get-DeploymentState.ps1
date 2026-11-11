@@ -9,6 +9,19 @@ function Test-SuroVersion([string]$Actual,[string]$Expected) {
 function Get-SuroInstalledState($Manifest) {
     $metadata=$Manifest.metadata;$present=$false;$version=$null;$known=$true
     switch($Manifest.kind){
+        {$_ -eq 'agent_update' -and -not $metadata.product_code} {
+            # SuroSetup.exe update: the installed agent itself is the evidence (publisher only for signed builds).
+            $exe=Join-Path $env:ProgramFiles 'Lantern Policy Agent\NetworkPolicyClient.exe'
+            if(Test-Path -LiteralPath $exe){
+                $present=$true
+                if($Manifest.publisher_thumbprint){
+                    $signature=Get-AuthenticodeSignature -LiteralPath $exe
+                    $present=$signature.Status -eq 'Valid' -and $signature.SignerCertificate.Thumbprint -eq $Manifest.publisher_thumbprint
+                }
+                $version=(Get-Item -LiteralPath $exe).VersionInfo.FileVersion
+            }
+            break
+        }
         {$_ -in @('msi','exe','agent_update')} {
             if(-not $metadata.product_code){$known=$false;break}
             if($metadata.product_code -notmatch '^\{[0-9A-Fa-f-]{36}\}$'){throw 'Invalid product identifier'}

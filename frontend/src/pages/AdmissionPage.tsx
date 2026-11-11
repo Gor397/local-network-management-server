@@ -7,6 +7,18 @@ import { useT } from "../i18n";
 import { HelpButton } from "../components/Help";
 
 // Requested changes and router-confirmed state are always shown apart; see services/admission_gate.py.
+type Subnet = {
+  id: string;
+  router_id: string;
+  router_name: string | null;
+  cidr: string;
+  state: string;
+  error: string | null;
+  members: number;
+  granted: number;
+  rollback_commands: string[];
+};
+type Exempted = { device_id: string; hostname: string; mac: string; device_class: string; reason: string | null };
 type Row = {
   device_id: string;
   hostname: string;
@@ -35,6 +47,7 @@ type Row = {
   override_until: string | null;
   onboarding_until: string | null;
   connected_ap: string | null;
+  source?: string | null;
   rollback_commands?: string[];
   logs?: { at: string; action: string; actor: string; details: any }[];
 };
@@ -42,7 +55,13 @@ const TONE: Record<string, string> = {
   AUTHORIZED: "online", ENROLLED: "online", CONNECTED: "online", EXEMPT: "verified",
   RESTRICTED: "failed", ERROR: "failed", NOT_ENROLLED: "failed", NEVER: "failed", UNHEALTHY: "failed",
   AUTHORIZATION_PENDING: "pending", REVOCATION_PENDING: "pending", ENROLLMENT_PENDING: "pending", DISCONNECTED: "pending",
+  PREPARING: "pending", PREVIEW: "pending", INSTALLED: "online", REMOVING: "pending", NOT_INSTALLED: "",
 };
+function useRouterOptions(revision: number) {
+  const routers = useData<any[]>("/mikrotik/routers", revision);
+  // Controller-managed CAPs are observed only; gates go on routers that route the computers' subnets.
+  return (routers.data || []).filter((r) => !r.controller_id && !r.archived).map((r) => ({ value: r.id, label: r.name }));
+}
 function when(value: string | null) {
   return value ? new Date(value.endsWith("Z") ? value : value + "Z").toLocaleString() : "—";
 }
@@ -56,8 +75,12 @@ export function AdmissionPage() {
   const { revision } = useContext(WorkContext);
   const [query, setQuery] = useState(""),
     [selected, setSelected] = useState<string | null>(null),
+    [checked, setChecked] = useState<string[]>([]),
     [onlyRequired, setOnlyRequired] = useState(false);
-  const { data, error } = useData<{ policy: any; counts: Record<string, number>; items: Row[] }>(
+  const { modal } = useContext(WorkContext);
+  const options = useRouterOptions(revision);
+  const toggle = (id: string) => setChecked(checked.includes(id) ? checked.filter((c) => c !== id) : [...checked, id]);
+  const { data, error } = useData<{ policy: any; counts: Record<string, number>; items: Row[]; subnets?: Subnet[]; exceptions?: Exempted[] }>(
     `/admission/overview?q=${encodeURIComponent(query)}&only_required=${onlyRequired}`,
     revision,
   );
@@ -73,7 +96,9 @@ export function AdmissionPage() {
       </div>
       {error && <div className="error">{t(error)}</div>}
       {data && <PolicyCard policy={data.policy} />}
-      <PilotCard />
+      <SelectedCard options={options} />
+      <SubnetsCard subnets={data?.subnets || []} mode={data?.policy.mode} options={options} />
+      <ExceptionsCard exceptions={data?.exceptions || []} />
       <section className="card section-spacing">
         <div className="toolbar">
           <label className="search">
@@ -84,6 +109,27 @@ export function AdmissionPage() {
             <span>{t("adm.onlyRequired")}</span>
             <input type="checkbox" checked={onlyRequired} onChange={(e) => setOnlyRequired(e.target.checked)} />
           </label>
+          <button
+            className="button primary"
+            disabled={!checked.length || !options.length}
+            onClick={() =>
+              modal({
+                title: "adm.requireSelected",
+                info: t("adm.requireSelectedInfo"),
+                fields: [
+                  { name: "router_id", label: "adm.gateRouterMany", type: "select", options },
+                  { name: "reason", label: "reason" },
+                ],
+                submit: async (v) => {
+                  const r = await api("/admission/selected", "POST", { ...v, device_ids: checked });
+                  setChecked([]);
+                  return r;
+                },
+              })
+            }
+          >
+            {t("adm.requireSelected")} ({checked.length})
+          </button>
         </div>
         {data && (
           <div className="explorer-counts compact">
@@ -99,6 +145,14 @@ export function AdmissionPage() {
           <table>
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label={t("adm.selectAll")}
+                    checked={!!data?.items.length && checked.length === data.items.filter((r) => !r.exempt).length}
+                    onChange={(e) => setChecked(e.target.checked ? (data?.items || []).filter((r) => !r.exempt).map((r) => r.device_id) : [])}
+                  />
+                </th>
                 {["hostname", "adm.user", "mac", "adm.clientCol", "adm.agentCol", "adm.networkCol", "lastSeen"].map((k) => (
                   <th key={k}>{t(k)}</th>
                 ))}
@@ -108,7 +162,11 @@ export function AdmissionPage() {
               {data?.items.map((r) => (
                 <tr key={r.device_id} className="clickable" tabIndex={0} aria-selected={selected === r.device_id}
                     onClick={() => setSelected(r.device_id)} onKeyDown={(e) => e.key === "Enter" && setSelected(r.device_id)}>
-                  <td><b>{r.hostname}</b>{r.required && <small>{t("adm.required")}</small>}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" aria-label={t("adm.selectRow") + " " + r.hostname} disabled={r.exempt}
+                           checked={checked.includes(r.device_id)} onChange={() => toggle(r.device_id)} />
+                  </td>
+                  <td><b>{r.hostname}</b>{r.required && <small>{t(r.source === "ALL" ? "adm.requiredSubnet" : "adm.required")}</small>}</td>
                   <td>{r.user ? [r.user.military_rank, r.user.full_name].filter(Boolean).join(" ") : "—"}</td>
                   <td className="mono">{r.mac}</td>
                   <td><Badge value={r.client} prefix="adm.client." /></td>
@@ -147,7 +205,7 @@ function PolicyCard({ policy }: { policy: any }) {
           <span>{t("adm.mode")}</span>
           <select value={form.mode} aria-label={t("adm.mode")} aria-describedby="admission-mode-hint" onChange={(e) => set("mode", e.target.value)}>
             {["DISABLED", "PILOT", "GROUPS", "ALL"].map((m) => (
-              <option key={m} value={m} disabled={m === "GROUPS" || m === "ALL"}>
+              <option key={m} value={m} disabled={m === "GROUPS"}>
                 {t("adm.mode." + m)}
               </option>
             ))}
@@ -207,35 +265,306 @@ function PolicyCard({ policy }: { policy: any }) {
   );
 }
 
-function PilotCard() {
+function SelectedCard({ options }: { options: { value: string; label: string }[] }) {
   const t = useT();
-  const { revision, modal } = useContext(WorkContext);
-  const routers = useData<any[]>("/mikrotik/routers", revision);
-  const options = (routers.data || []).filter((r) => !r.controller_id && !r.archived).map((r) => ({ value: r.id, label: r.name }));
+  const { modal } = useContext(WorkContext);
+  const [plan, setPlan] = useState<any>(null);
   return (
     <section className="card section-spacing detail-content">
       <h2>{t("adm.pilot")}</h2>
       <p className="muted">{t("adm.pilotHint")}</p>
+      <div className="button-row">
+        <button
+          className="button secondary"
+          disabled={!options.length}
+          onClick={() =>
+            modal({
+              title: "adm.addPilot",
+              info: t("adm.addPilotInfo"),
+              fields: [
+                { name: "mac", label: "adm.pilotMac" },
+                { name: "hostname", label: "hostname", required: false },
+                { name: "router_id", label: "adm.gateRouter", type: "select", options },
+                { name: "reason", label: "reason" },
+              ],
+              submit: (v) => api("/admission/pilot", "POST", { ...v, hostname: v.hostname || null }),
+            })
+          }
+        >
+          {t("adm.addPilot")}
+        </button>
+        <button
+          className="button primary"
+          disabled={!options.length}
+          onClick={() =>
+            modal({
+              title: "adm.prepareSelected",
+              info: t("adm.prepareSelectedInfo"),
+              fields: [
+                { name: "router_id", label: "adm.gateRouterMany", type: "select", options },
+                { name: "reason", label: "reason" },
+              ],
+              submit: async (v) =>
+                setPlan({ ...(await api(`/admission/routers/${v.router_id}/gate-preview`, "POST", { reason: v.reason })), router_id: v.router_id, reason: v.reason }),
+            })
+          }
+        >
+          {t("adm.prepareSelected")}
+        </button>
+      </div>
+      {!options.length && <p className="notice">{t("adm.noRouters")}</p>}
+      {plan && (
+        <ApplyPlan
+          title="adm.prepareSelected"
+          plan={plan}
+          url={`/admission/routers/${plan.router_id}/apply`}
+          onDone={() => setPlan(null)}
+          before={
+            <>
+              {plan.included?.length > 0 && <p>{t("adm.batchIncluded")}: {plan.included.map((i: any) => i.hostname).join(", ")}</p>}
+              {plan.skipped?.map((s: any) => (
+                <p key={s.device_id} className="notice warning">
+                  <AlertTriangle size={15} /> {s.hostname}: {s.blockers.map((b: string) => t(b)).join("; ")}
+                </p>
+              ))}
+            </>
+          }
+        />
+      )}
+    </section>
+  );
+}
+
+function SubnetsCard({ subnets, mode, options }: { subnets: Subnet[]; mode?: string; options: { value: string; label: string }[] }) {
+  const t = useT();
+  const { modal } = useContext(WorkContext);
+  const [plan, setPlan] = useState<any>(null);
+  const preview = (subnet: Subnet, kind: "preview" | "removal-preview") =>
+    modal({
+      title: kind === "preview" ? "adm.subnetPreview" : "adm.subnetRemove",
+      info: t(kind === "preview" ? "adm.subnetPreviewInfo" : "adm.subnetRemoveInfo"),
+      fields: [{ name: "reason", label: "reason" }],
+      submit: async (v) => setPlan({ ...(await api(`/admission/subnets/${subnet.id}/${kind}`, "POST", v)), kind, subnet, reason: v.reason }),
+    });
+  return (
+    <section className="card section-spacing detail-content">
+      <h2>{t("adm.subnets")}</h2>
+      <p className="muted">{t("adm.subnetsHint")}</p>
+      {mode !== "ALL" && <p className="notice">{t("adm.subnetsNeedAll")}</p>}
+      {subnets.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                {["adm.subnet", "adm.gateRouterMany", "adm.subnetState", "adm.subnetMembers", ""].map((k) => (
+                  <th key={k}>{k && t(k)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {subnets.map((s) => (
+                <tr key={s.id}>
+                  <td className="mono">{s.cidr}</td>
+                  <td>{s.router_name || "—"}</td>
+                  <td>
+                    <span className={"badge " + (TONE[s.state] || "")}>{t("adm.subnetState." + s.state)}</span>
+                    {s.error && <small className="error">{t(s.error)}</small>}
+                  </td>
+                  <td>{s.granted} / {s.members}</td>
+                  <td className="button-row">
+                    {["PREPARING", "PREVIEW", "ERROR"].includes(s.state) && (
+                      <button className="button primary" onClick={() => preview(s, "preview")}>{t("adm.subnetPreview")}</button>
+                    )}
+                    {s.state !== "NOT_INSTALLED" && (
+                      <button className="button secondary danger" onClick={() => preview(s, "removal-preview")}>{t("adm.subnetRemove")}</button>
+                    )}
+                    {s.state === "NOT_INSTALLED" && (
+                      <button
+                        className="button secondary"
+                        onClick={() =>
+                          modal({ title: "adm.subnetDelete", fields: [{ name: "reason", label: "reason" }], submit: (v) => api(`/admission/subnets/${s.id}`, "DELETE", v) })
+                        }
+                      >
+                        {t("adm.subnetDelete")}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <button
-        className="button primary"
-        disabled={!options.length}
+        className="button secondary"
+        disabled={mode !== "ALL" || !options.length}
         onClick={() =>
           modal({
-            title: "adm.addPilot",
-            info: t("adm.addPilotInfo"),
+            title: "adm.subnetAdd",
+            info: t("adm.subnetAddInfo"),
             fields: [
-              { name: "mac", label: "adm.pilotMac" },
-              { name: "hostname", label: "hostname", required: false },
-              { name: "router_id", label: "adm.gateRouter", type: "select", options },
+              { name: "router_id", label: "adm.gateRouterMany", type: "select", options },
+              { name: "cidr", label: "adm.subnet" },
               { name: "reason", label: "reason" },
             ],
-            submit: (v) => api("/admission/pilot", "POST", { ...v, hostname: v.hostname || null }),
+            submit: (v) => api("/admission/subnets", "POST", v),
           })
         }
       >
-        {t("adm.addPilot")}
+        {t("adm.subnetAdd")}
       </button>
-      {!options.length && <p className="notice">{t("adm.noRouters")}</p>}
+      {plan && (
+        <ApplyPlan
+          title={plan.kind === "preview" ? "adm.subnetPreview" : "adm.subnetRemove"}
+          plan={plan}
+          url={`/admission/subnets/${plan.subnet.id}/apply`}
+          danger={plan.kind !== "preview"}
+          confirmCount={plan.plan?.confirm_restricted}
+          onDone={() => setPlan(null)}
+          before={
+            <>
+              {plan.feasibility && <Feasibility f={plan.feasibility} />}
+              {plan.feasibility?.restricted?.length > 0 && (
+                <details open>
+                  <summary>{t("adm.subnetRestrictedList")} ({plan.feasibility.facts.hosts_restricted})</summary>
+                  <ul className="plain-list">
+                    {plan.feasibility.restricted.map((h: any) => (
+                      <li key={h.address}>
+                        <span className="mono">{h.address}</span> · <span className="mono">{h.mac}</span> {h.hostname || ""}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              <details>
+                <summary>{t("adm.manualRollback")}</summary>
+                <p className="muted">{t("adm.subnetRollbackInfo")}</p>
+                <pre className="json-view">{(plan.rollback_commands || []).join("\n")}</pre>
+              </details>
+            </>
+          }
+        />
+      )}
+    </section>
+  );
+}
+
+function ExceptionsCard({ exceptions }: { exceptions: Exempted[] }) {
+  const t = useT();
+  const { modal } = useContext(WorkContext);
+  return (
+    <section className="card section-spacing detail-content">
+      <h2>{t("adm.exceptions")}</h2>
+      <p className="muted">{t("adm.exceptionsHint")}</p>
+      {exceptions.length > 0 ? (
+        <ul className="plain-list">
+          {exceptions.map((e) => (
+            <li key={e.device_id}>
+              <b>{e.hostname}</b> · <span className="mono">{e.mac}</span> · {t("adm.class." + e.device_class)}
+              {e.reason && <> — {e.reason}</>}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">{t("adm.noExceptions")}</p>
+      )}
+      <button
+        className="button secondary"
+        onClick={() =>
+          modal({
+            title: "adm.exceptionAdd",
+            info: t("adm.exceptionAddInfo"),
+            fields: [
+              { name: "mac", label: "mac" },
+              { name: "name", label: "hostname" },
+              { name: "device_class", label: "adm.deviceType", type: "select", options: ["OTHER", "INFRASTRUCTURE"].map((c) => ({ value: c, label: t("adm.class." + c) })) },
+              { name: "reason", label: "reason" },
+            ],
+            submit: (v) => api("/admission/exceptions", "POST", { ...v, device_class: v.device_class || "OTHER" }),
+          })
+        }
+      >
+        {t("adm.exceptionAdd")}
+      </button>
+    </section>
+  );
+}
+
+function Feasibility({ f }: { f: any }) {
+  const t = useT();
+  return (
+    <>
+      <div className="detail-grid">
+        {Object.entries(f.facts).map(([k, v]) => (
+          <div key={k}>
+            <span>{t("adm.fact." + k)}</span>
+            <strong>{Array.isArray(v) ? v.join(", ") || "—" : typeof v === "boolean" ? t(v ? "ps.on" : "ps.off") : String(v ?? "—")}</strong>
+          </div>
+        ))}
+      </div>
+      {f.blockers.map((b: string) => (
+        <p key={b} className="error" role="alert">{t(b)}</p>
+      ))}
+      {f.warnings.map((w: string) => (
+        <p key={w} className="notice warning">
+          <AlertTriangle size={15} /> {t(w)}
+        </p>
+      ))}
+    </>
+  );
+}
+
+/** A reviewed router plan for several computers or a subnet: exact operations, then an explicit apply. */
+function ApplyPlan({ title, plan, url, before, danger, confirmCount, onDone }: {
+  title: string; plan: any; url: string; before?: any; danger?: boolean; confirmCount?: number; onDone: () => void;
+}) {
+  const t = useT();
+  const { refresh } = useContext(WorkContext);
+  const [result, setResult] = useState(""),
+    [busy, setBusy] = useState(false),
+    [typed, setTyped] = useState("");
+  const needsCount = confirmCount !== undefined && confirmCount !== null;
+  return (
+    <section className="plan-review">
+      <h3>{t(title)}</h3>
+      {before}
+      {plan.already_installed && <p className="notice">{t("adm.alreadyInstalled")}</p>}
+      {plan.already_removed && <p className="notice">{t("adm.alreadyRemoved")}</p>}
+      {plan.plan && (
+        <>
+          <p>{t("adm.planOps")}</p>
+          <pre className="json-view">{plan.plan.operations.map((o: any) => `${o.action} ${o.path} ${JSON.stringify(o.rule || o.owned_comment)}`).join("\n")}</pre>
+          <p className="notice">{t("adm.planSafety")}</p>
+          {needsCount && (
+            <label>
+              <span>{t("adm.confirmRestricted")}</span>
+              <input type="number" min={0} value={typed} aria-label={t("adm.confirmRestricted")} onChange={(e) => setTyped(e.target.value)} />
+            </label>
+          )}
+          <button
+            className={"button " + (danger ? "danger" : "primary")}
+            disabled={busy || (needsCount && typed !== String(confirmCount))}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const r = await api(url, "POST", { plan_id: plan.plan.id, reason: plan.reason, ...(needsCount ? { confirm_restricted: Number(typed) } : {}) });
+                setResult("adm.applyState." + r.state);
+              } catch (e: any) {
+                setResult(e.code || "request.failed");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {t("adm.applyPlan")}
+          </button>
+        </>
+      )}
+      {(result || !plan.plan) && (
+        <p className="notice" role="status">
+          {result && t(result)} <button className="link-button" onClick={() => (onDone(), refresh())}>{t("adm.close")}</button>
+        </p>
+      )}
     </section>
   );
 }
@@ -246,7 +575,12 @@ export function AdmissionDevicePanel({ deviceId }: { deviceId: string }) {
   const { revision, modal, refresh } = useContext(WorkContext);
   const { data: r, error } = useData<Row>("/admission/devices/" + deviceId, revision);
   const [plan, setPlan] = useState<any>(null);
+  const requests = useData<{ id: string; requested: boolean; approved: boolean; expires_at: string; csr_sha256: string | null }[]>(
+    "/devices/" + deviceId + "/enrollments",
+    revision,
+  );
   if (!r) return error ? <div className="error">{t(error)}</div> : null;
+  const pending = (requests.data || []).filter((e) => e.requested && !e.approved && new Date(e.expires_at + (e.expires_at.endsWith("Z") ? "" : "Z")) > new Date());
   const base = "/admission/devices/" + deviceId;
   const ask = (title: string, path: string, extra: any = {}, fields: any[] = [], info?: string) =>
     modal({
@@ -294,6 +628,25 @@ export function AdmissionDevicePanel({ deviceId }: { deviceId: string }) {
           {t("adm.lastError")}: {t(r.error)}
         </p>
       )}
+      {pending.map((e) => (
+        <div key={e.id} className="notice warning" role="status">
+          <p>
+            {t("adm.approvePending")} <span className="mono">{(e.csr_sha256 || "").slice(0, 16)}</span>
+          </p>
+          <button
+            className="button primary"
+            onClick={() =>
+              modal({
+                title: "adm.approve",
+                info: t("adm.approveInfo"),
+                submit: () => api(`/devices/${deviceId}/enrollments/${e.id}/approve`, "POST", {}),
+              })
+            }
+          >
+            {t("adm.approve")}
+          </button>
+        </div>
+      ))}
       <div className="detail-grid">
         {grid.map(([k, v]) => (
           <div key={k}>

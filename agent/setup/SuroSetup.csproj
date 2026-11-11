@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- One-file installer for the Suro Client. .NET Framework 4.6.2 is part of every supported Windows 10/11, so this
+       small program runs on 64-bit and 32-bit Windows alike and picks the matching embedded client payload.
+       Built by scripts/build-client.py; see docs/developers/building-the-client.md. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net462</TargetFramework>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>SuroSetup</AssemblyName>
+    <RootNamespace>Suro.Setup</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.4.0</Version>
+    <Product>Suro</Product><Company>Suro Project</Company><Title>Suro Client Setup</Title>
+    <PayloadDirectory Condition="'$(PayloadDirectory)' == ''">$(MSBuildThisFileDirectory)payload/</PayloadDirectory>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms"/>
+    <Reference Include="System.Drawing"/>
+    <Reference Include="System.ServiceProcess"/>
+    <Reference Include="System.IO.Compression"/>
+    <Reference Include="System.Web.Extensions"/>
+    <!-- Produced by the build script. A build without payloads still compiles (development check) but refuses to install. -->
+    <EmbeddedResource Include="$(PayloadDirectory)payload-x64.zip" LogicalName="payload-x64.zip" Condition="Exists('$(PayloadDirectory)payload-x64.zip')"/>
+    <EmbeddedResource Include="$(PayloadDirectory)payload-x86.zip" LogicalName="payload-x86.zip" Condition="Exists('$(PayloadDirectory)payload-x86.zip')"/>
+    <!-- Optional: server settings baked in at build time (needed only for a code-signed setup; see the guide). -->
+    <EmbeddedResource Include="$(PayloadDirectory)site.json" LogicalName="site.json" Condition="Exists('$(PayloadDirectory)site.json')"/>
+  </ItemGroup>
+</Project>

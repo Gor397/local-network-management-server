@@ -80,18 +80,24 @@ def evaluate(device, admission, policy, credential_active, compliance_state, now
     return "AUTHORIZED", "admission.agent_verified"
 
 
-def network_state(admission, desired, now=None):
-    """What the router is confirmed to do, never what was merely requested."""
+def network_state(admission, desired, now=None, enforced=True):
+    """What the router is confirmed to do, never what was merely requested.
+
+    `enforced` is False for a member of a subnet gate whose drop rules are not installed yet: its grant is kept,
+    but nothing restricts it, so it is never reported as restricted."""
     now = now or utcnow()
-    if desired in ("EXEMPT", "NOT_REQUIRED") and (not admission or admission.gate_state != "INSTALLED"):
+    managed = admission is not None and admission.gate_state in ("INSTALLED", "SUBNET")
+    if desired in ("EXEMPT", "NOT_REQUIRED") and not managed:
         return desired
-    if not admission or admission.gate_state != "INSTALLED":
+    if not managed:
         return "GATE_NOT_INSTALLED"
     if admission.error:
         return "ERROR"
     granted = admission.applied == "AUTHORIZED" and (not admission.grant_expires_at or admission.grant_expires_at > now)
     if desired in ("AUTHORIZED", "EXEMPT", "NOT_REQUIRED"):
         return "AUTHORIZED" if granted else "AUTHORIZATION_PENDING"
+    if not enforced:
+        return "GATE_NOT_INSTALLED"
     return "REVOCATION_PENDING" if granted else "RESTRICTED"
 
 
@@ -284,3 +290,153 @@ def _inside(address, network):
 
 def grant_expiry(ttl, now=None):
     return (now or utcnow()) + timedelta(seconds=ttl) if ttl else None
+
+
+# ---- all computers of a subnet except exceptions -----------------------------------------------------
+#
+# One pair of drop rules per routed IPv4 subnet replaces per-MAC rules. They match every source address in the
+# subnet that is NOT in suro-admitted. Before they are installed (state PREPARING), the worker already keeps the
+# per-computer grants: timed for computers whose Suro Client reports, permanent for exceptions. The plan adds
+# permanent entries for the Suro server and the access points inside the subnet. The preview lists every host the
+# router sees there that would lose routed access, and the administrator must confirm that number.
+
+def subnet_tag(subnet, part):
+    return f"lantern:subnet:{subnet.id}:admission:{part}"
+
+
+def subnet_prefix(subnet):
+    return f"lantern:subnet:{subnet.id}:"
+
+
+def subnet_network(subnet):
+    return ip_network(subnet.cidr, strict=False)
+
+
+def subnet_rules(subnet, server_ip):
+    if not server_ip:
+        raise ValueError("admission.server_address_required")
+    cidr = str(subnet_network(subnet))
+    return [
+        (FILTER, {"chain": "forward", "src-address": cidr, "src-address-list": "!" + ADMITTED_LIST,
+                  "dst-address": "!" + server_ip, "action": "drop", "comment": subnet_tag(subnet, "forward")}),
+        (FILTER, {"chain": "input", "src-address": cidr, "src-address-list": "!" + ADMITTED_LIST,
+                  "protocol": "tcp", "action": "drop", "comment": subnet_tag(subnet, "input")}),
+    ]
+
+
+def subnet_allow_addresses(subnet, server_ip, snapshot):
+    """Addresses inside the subnet that must keep routed access regardless of any agent: Suro and access points."""
+    network = subnet_network(subnet)
+    keep = set()
+    if server_ip and _inside(server_ip, network):
+        keep.add(server_ip)
+    for cap in snapshot.get("caps-man/remote-cap", []):
+        address = str(cap.get("address", "")).split("/")[0]
+        if _inside(address, network):
+            keep.add(address)
+    return sorted(keep, key=ip_address)
+
+
+def subnet_hosts(subnet, snapshot):
+    """Every address the router associates with a MAC inside the subnet (ARP and DHCP leases), one row per address."""
+    network = subnet_network(subnet)
+    hosts = {}
+    for row in snapshot.get("ip/arp", []) + snapshot.get("ip/dhcp-server/lease", []):
+        address, mac = row.get("address"), str(row.get("mac-address", "")).upper()
+        if not address or not mac or row.get("invalid") == "true" or not _inside(address, network):
+            continue
+        entry = hosts.setdefault(address, {"address": address, "mac": mac, "hostname": None})
+        entry["hostname"] = entry["hostname"] or row.get("host-name") or row.get("comment") or None
+    return sorted(hosts.values(), key=lambda h: ip_address(h["address"]))
+
+
+def subnet_impact(subnet, server_ip, snapshot):
+    """Who keeps routed access once the drop rules are in, from the router's current address list only."""
+    now_admitted = {r.get("address") for r in snapshot.get(ADDRESS_LIST, [])
+                    if r.get("list") == ADMITTED_LIST and r.get("disabled") != "true"}
+    allowed = set(subnet_allow_addresses(subnet, server_ip, snapshot))
+    keep, restricted = [], []
+    for host in subnet_hosts(subnet, snapshot):
+        if host["address"] in now_admitted or host["address"] in allowed:
+            keep.append(host)
+        else:
+            restricted.append(host)
+    return keep, restricted
+
+
+def subnet_feasibility(router, subnet, snapshot, server_ip, admin_ip=None):
+    blockers, warnings, facts = [], [], {}
+    network = subnet_network(subnet)
+    resource = next(iter(snapshot.get("system/resource", [])), {})
+    facts["routeros_version"] = resource.get("version")
+    facts["transport"] = router.transport
+    facts["subnet"] = str(network)
+    if router.transport in ("API", "CAPSMAN"):
+        blockers.append("admission.router_read_only_transport")
+    if router.role == "GATEWAY" or router.protected:
+        warnings.append("admission.protected_router")
+    if not server_ip:
+        blockers.append("admission.server_address_required")
+    routed = False
+    for row in snapshot.get("ip/address", []):
+        try:
+            interface = ip_network(row.get("address", ""), strict=False)
+        except ValueError:
+            continue
+        routed = routed or interface.overlaps(network)
+    facts["routes_subnet"] = routed
+    if not routed:
+        blockers.append("admission.router_not_gateway_for_subnet")
+    if network.prefixlen < 16:
+        blockers.append("admission.subnet_too_large")
+    if ipv6_present(snapshot):
+        # IPv4 source rules cannot match IPv6; per-MAC gates cover it, subnet gates do not.
+        warnings.append("admission.subnet_ipv6_not_gated")
+    if admin_ip and _inside(admin_ip, network):
+        warnings.append("admission.subnet_contains_admin")
+    keep, restricted = subnet_impact(subnet, server_ip, snapshot)
+    facts["hosts_keeping_access"] = len(keep)
+    facts["hosts_restricted"] = len(restricted)
+    if restricted:
+        warnings.append("admission.subnet_hosts_restricted")
+    return {"blockers": blockers, "warnings": warnings, "facts": facts, "restricted": restricted[:1000], "keeping": keep[:1000]}
+
+
+def subnet_plan(subnet, server_ip, snapshot):
+    """Allow entries first, then the drop rules before every existing rule; owned entries are kept or replaced."""
+    operations = []
+    rows = snapshot.get(ADDRESS_LIST, [])
+    present = {r.get("address") for r in rows if r.get("comment") == subnet_tag(subnet, "allow") and r.get("list") == ADMITTED_LIST}
+    for address in subnet_allow_addresses(subnet, server_ip, snapshot):
+        if address not in present:
+            operations.append({"method": "PUT", "path": ADDRESS_LIST,
+                               "data": {"list": ADMITTED_LIST, "address": address, "comment": subnet_tag(subnet, "allow")}})
+    for path, data in subnet_rules(subnet, server_ip):
+        rules = snapshot.get(path, [])
+        mine = [r for r in rules if r.get("comment") == data["comment"]]
+        if len(mine) > 1:
+            raise ValueError("network.duplicate_managed_rule")
+        if mine and all(mine[0].get(k) == v for k, v in data.items()) and first_in_chain(rules, data["chain"], data["comment"]):
+            continue
+        for row in mine:
+            operations.append({"method": "DELETE", "path": path, "id": row[".id"], "owned_comment": row["comment"]})
+        others = [r for r in rules if r not in mine]
+        operations.append({"method": "PUT", "path": path, "data": {**data, **({"place-before": others[0][".id"]} if others else {})},
+                           "placement": "first"})
+    return operations
+
+
+def subnet_removal_plan(subnet, snapshot, devices=()):
+    """Drop rules first (access returns at once), then allow entries and the grants of computers this subnet managed."""
+    prefixes = [subnet_prefix(subnet)] + [f"lantern:{d.id}:admission:" for d in devices]
+    rules = [{"method": "DELETE", "path": FILTER, "id": r[".id"], "owned_comment": r["comment"]}
+             for r in snapshot.get(FILTER, []) if str(r.get("comment", "")).startswith(subnet_prefix(subnet))]
+    entries = [{"method": "DELETE", "path": ADDRESS_LIST, "id": r[".id"], "owned_comment": r["comment"]}
+               for r in snapshot.get(ADDRESS_LIST, []) if str(r.get("comment", "")).startswith(tuple(prefixes))]
+    return rules + entries
+
+
+def subnet_rollback_commands(subnet):
+    prefix = subnet_prefix(subnet)
+    return [f'/ip firewall filter remove [find comment~"^{prefix}"]',
+            f'/ip firewall address-list remove [find comment~"^{prefix}"]']

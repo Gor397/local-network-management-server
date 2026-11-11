@@ -630,6 +630,20 @@ class AdmissionPolicy(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class AdmissionSubnet(Record, Base):
+    """"All computers except exceptions" on one routed IPv4 subnet: one drop rule for every source in `cidr` that is
+    not in suro-admitted. Grants for agents and exceptions are kept per computer by the worker (source ALL)."""
+    __tablename__ = "admission_subnets"
+    router_id: Mapped[str] = mapped_column(ForeignKey("routers.id"), index=True)
+    cidr: Mapped[str] = mapped_column(String(43))
+    # PREPARING (grants only) → PREVIEW → INSTALLED; REMOVING; ERROR. Nothing is dropped before INSTALLED.
+    state: Mapped[str] = mapped_column(String(16), default="PREPARING")
+    plan_id: Mapped[str | None] = mapped_column(String(36))
+    error: Mapped[str | None] = mapped_column(String(64))
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("administrators.id"))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class NetworkAdmission(Record, Base):
     """One computer's admission gate: static router rules (gate_state) and its timed grant (applied)."""
     __tablename__ = "network_admissions"

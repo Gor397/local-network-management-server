@@ -58,3 +58,47 @@ def test_lab_requires_storage_check_before_generating_keys(tmp_path,monkeypatch)
     with pytest.raises(SystemExit,match='Cannot inspect retained lab storage'):
         lab.prepare()
     assert not lab.ENV.exists() and not lab.DATA.exists()
+
+
+def test_fresh_lab_selects_a_new_volume_without_removing_retained_storage(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    lab = load('suro_lab_fresh', 'lab.py')
+    monkeypatch.setattr(lab, 'DATA', tmp_path / 'data')
+    monkeypatch.setattr(lab, 'ENV', tmp_path / 'lab.env')
+    calls = []
+
+    def inspect_storage(arguments, **kwargs):
+        calls.append(arguments)
+        return SimpleNamespace(returncode=0, stdout='lantern-lab_postgres_data\n')
+
+    def generate_test_files(arguments, **kwargs):
+        calls.append(arguments)
+        for flag in ('-out', '-keyout'):
+            if flag in arguments:
+                Path(arguments[arguments.index(flag) + 1]).write_text('test-only placeholder')
+
+    monkeypatch.setattr(lab.subprocess, 'run', inspect_storage)
+    monkeypatch.setattr(lab, 'run', generate_test_files)
+    lab.prepare(fresh=True)
+    values = dict(line.split('=', 1) for line in lab.ENV.read_text().splitlines())
+    assert values['LAB_POSTGRES_VOLUME'].startswith('lantern-lab_postgres_fresh_')
+    assert values['OPERATION_MODE'] == 'read_only'
+    assert values['ROUTER_ALLOWED_NETWORKS'] == '127.0.0.1/32'
+    assert lab.ENV.stat().st_mode & 0o777 == 0o600
+    assert calls[0][:3] == ['docker', 'volume', 'ls']
+    assert all(arguments[0] == 'openssl' for arguments in calls[1:])
+
+
+@pytest.mark.parametrize('existing', ['env', 'data'])
+def test_fresh_lab_refuses_to_replace_existing_configuration(tmp_path, monkeypatch, existing):
+    lab = load('suro_lab_fresh_preserve', 'lab.py')
+    monkeypatch.setattr(lab, 'DATA', tmp_path / 'data')
+    monkeypatch.setattr(lab, 'ENV', tmp_path / 'lab.env')
+    protected = lab.ENV
+    if existing == 'data':
+        lab.DATA.mkdir()
+        protected = lab.DATA / 'existing.key'
+    protected.write_text('preserve me')
+    with pytest.raises(SystemExit, match='preserved'):
+        lab.prepare(fresh=True)
+    assert protected.read_text() == 'preserve me'

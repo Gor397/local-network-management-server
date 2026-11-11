@@ -117,8 +117,28 @@ try {
     $service = Get-Service LocalNetworkPolicyAgent
     BoolClaim 'agent.service_running' ($service.Status -eq 'Running') ([string]$service.Status)
     $health.service_running = ($service.Status -eq 'Running')
-    $sig = Get-AuthenticodeSignature -LiteralPath $AgentPath
-    BoolClaim 'agent.integrity_valid' ([bool]($Publisher -and $sig.Status -eq 'Valid' -and $sig.SignerCertificate.Thumbprint -eq $Publisher)) ([string]$sig.Status)
+    if ($Publisher) {
+        $sig = Get-AuthenticodeSignature -LiteralPath $AgentPath
+        BoolClaim 'agent.integrity_valid' ([bool]($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Thumbprint -eq $Publisher)) ([string]$sig.Status)
+    } else {
+        # Unsigned build: SuroSetup.exe recorded the SHA-256 of the client's own files in protected ProgramData.
+        # This detects later modification of the installed files; it cannot vouch for the installer itself.
+        $manifestPath = Join-Path $env:ProgramData 'Lantern\install-manifest.json'
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            Claim 'agent.integrity_valid' 'UNKNOWN' $null @{ reason = 'install_manifest_missing' }
+        } else {
+            $installed = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $folder = Split-Path -Parent $AgentPath
+            $changed = @($installed.files.PSObject.Properties | Where-Object {
+                $path = Join-Path $folder $_.Name
+                -not (Test-Path -LiteralPath $path) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $_.Value
+            } | ForEach-Object Name)
+            if (-not @($installed.files.PSObject.Properties).Count) { $changed += '(empty manifest)' }
+            BoolClaim 'agent.integrity_valid' ($changed.Count -eq 0) ([string]$installed.version)
+            if ($changed.Count) { $claims['agent.integrity_valid'].evidence = @{ mode = 'install_manifest'; changed = @($changed | Select-Object -First 10) } }
+            else { $claims['agent.integrity_valid'].evidence = @{ mode = 'install_manifest' } }
+        }
+    }
 } catch { Claim 'agent.integrity_valid' 'UNKNOWN' $null }
 # Full effective restriction verification is edition- and policy-dependent; never infer it from intent.
 Claim 'security.user_restrictions.valid' 'UNKNOWN' $null @{ reason='effective_policy_verification_required' }

@@ -1,6 +1,6 @@
 ---
 name: lantern-windows
-description: Implement or diagnose Suro's .NET 10 Windows Service, enrollment, fixed PowerShell operations, offline installers, or signed MSI/update workflow.
+description: Implement or diagnose Suro's .NET 10 Windows Service, enrollment, fixed PowerShell operations, offline installers, the one-file SuroSetup.exe, or the signed MSI/update workflow.
 ---
 
 Read the Windows rows of [the code map](../../../docs/developers/code-map.md) and the relevant [privileged-operation section](../../../docs/developers/privileged-operations.md). Work from the repository root.
@@ -15,4 +15,4 @@ Preserve existing accounts, profiles, hidden/recovery partitions and manual fire
 
 Installers require SHA-256, trusted Authenticode publisher, build/architecture checks and durable task-attempt records. An interrupted privileged operation becomes unknown rather than an automatic replay. Do not block heartbeats for a long-running installation. Standard-user protection uses documented ACL/SCM boundaries; local-admin resistance is not promised.
 
-Run `python3 scripts/dev-check.py --area agent` (or set `DOTNET_BIN`). Build/sign MSI on Windows with `agent/installer/Build-Installer.ps1`; never insert a token or signing secret into command arguments or logs. Use the relevant [Windows VM matrix](../../../docs/developers/testing.md) for behavioral validation. Cross-compilation and crypto tests do not establish service, ACL, firewall, driver or disk correctness. Record this distinction in [progress](../../../docs/progress.md).
+Run `python3 scripts/dev-check.py --area agent` (or set `DOTNET_BIN`). The normal client artifact is the unsigned one-file `SuroSetup.exe` (`make client`, Linux or Windows; [building the client](../../../docs/developers/building-the-client.md)). Every bundled `.ps1` is also embedded in the service and checked by `Service/PowerShell.cs`, so add new scripts under `agent/src/` and never hand-edit installed copies. The signed WiX MSI (`agent/installer/Build-Installer.ps1`) is optional; never insert a token or signing secret into command arguments or logs. Use the relevant [Windows VM matrix](../../../docs/developers/testing.md) for behavioral validation. Cross-compilation and crypto tests do not establish service, ACL, firewall, driver or disk correctness. Record this distinction in [progress](../../../docs/progress.md).

@@ -1,6 +1,14 @@
 # Mandatory Suro Client (network admission)
 
-A computer under this requirement gets normal network access only while its enrolled Suro Client is running. **The router enforces it**, not Windows. The feature ships with the policy set to `DISABLED`. Only computers an administrator adds as pilot devices are ever gated.
+A computer under this requirement gets normal network access only while its enrolled Suro Client is running. **The router enforces it**, not Windows. The feature ships with the policy set to `DISABLED`. Three scopes exist:
+
+| Scope | Policy mode | How computers are chosen | Router mechanism |
+|---|---|---|---|
+| One computer | `PILOT` (*Selected computers*) | **Add computer by MAC** | Per-MAC gate below |
+| A list | `PILOT` | Tick computers → **Require the client for selected** (`POST /admission/selected`) → one router plan for all of them (`POST /admission/routers/{id}/gate-preview`, up to 50) | Per-MAC gate below, one reviewed plan |
+| All computers except exceptions | `ALL` | **Add network** per routed IPv4 subnet; exceptions are devices marked exempt (**Add exception** by MAC, or a device's own panel) | [Subnet gate](#all-computers-except-exceptions) |
+
+`GROUPS` is refused (`admission.mode_requires_staged_rollout`); tick the group's computers instead.
 
 ## How it works
 
@@ -52,11 +60,9 @@ It is replaced about every half TTL, and router I/O happens only then. When the 
 
 ## Onboarding without internet
 
-1. Build the site installer once, on Windows, with the code-signing certificate:
-   `agent/installer/Build-Installer.ps1 -SigningCertificateThumbprint <thumb> -Version 0.3.0 -SiteFile site.json`.
-   `site.json` (see `site.example.json`) holds only `server`, `signing_public_key`, `agent_publisher_thumbprint`, `server_certificate_sha256` and `ui_language`. The build refuses anything else, including tokens.
-2. Upload the MSI as an `agent_update` package and approve it. The onboarding page offers the newest approved one.
-3. Expose the page: set `ONBOARDING_HTTP_BIND=<server LAN IP>:80` and restart the web container. It serves only `/onboard`; every other path redirects there. It is plain HTTP on purpose: there is no certificate to warn about, the page holds no secret, and the MSI is Authenticode-signed. Users type `http://<server IP>`, or a name you add as a static DNS entry on the router. Captive-portal detection does not work without internet, so tell users the address.
+1. Build `SuroSetup.exe` once, on Linux or Windows, with no certificate: `make client`. See [building the client](building-the-client.md). The download from the onboarding page carries this server's public settings (`site_settings()` in `api/onboarding.py`), so no per-site build or `site.json` is needed. (The signed WiX MSI built with `agent/installer/Build-Installer.ps1 -SiteFile site.json` still works.)
+2. Upload it as an `agent_update` package (architecture `any`, publisher empty) and approve it. The onboarding page offers the newest approved one.
+3. Expose the page: set `ONBOARDING_HTTP_BIND=<server LAN IP>:80` and restart the web container. It serves only `/onboard`; every other path redirects there. It is plain HTTP on purpose: there is no certificate to warn about, and the page holds no secret. The setup it serves is as trustworthy as the local network path, the same as the page itself; a code-signed setup adds a Windows-verified publisher. Users type `http://<server IP>`, or a name you add as a static DNS entry on the router. Captive-portal detection does not work without internet, so tell users the address.
 4. When the laptop's client starts without an identity, it locks `%ProgramData%\Lantern` to SYSTEM/Administrators, then asks `/agent/onboarding-request` with its CSR and MACs. The server answers with a token only while an administrator has opened **Allow client installation** for that computer. An administrator then approves the request on the device page (Enrollments). Only then is a certificate issued, the service restarts as the agent, and the registration window (first name, surname, optional rank; Armenian by default) opens for the signed-in user.
 
 A technician can still preinstall with `Install-Agent.ps1` and a short-lived token, as before.
@@ -69,8 +75,8 @@ Prerequisites: the router that routes the laptop's subnet is registered with API
 2. **Laptop:** **Add pilot laptop** → enter the laptop's Wi-Fi MAC (turn off random hardware addresses for this SSID on the laptop) and choose the router.
 3. **Check:** in the table, select the laptop → **Prepare router gate**. Read the router facts. Resolve every blocker. Note the same-subnet warning; if you need real isolation, move the laptop to a pilot SSID/VLAN first.
 4. **Apply:** **Apply to router**. Network access becomes *Restricted to onboarding*. The laptop can open `http://<Suro IP>` but nothing routed.
-5. **Install:** **Allow client installation** (e.g. 120 minutes). On the laptop open the onboarding page, click **Տեղադրել Suro ծրագիրը**, run the MSI and accept UAC.
-6. **Approve:** on the device page (Overview → Enrollments) approve the request; check the hostname and CSR fingerprint first. The registration window appears on the laptop; the user enters their name.
+5. **Install:** **Allow client installation** (e.g. 120 minutes). On the laptop open the onboarding page, click **Տեղադրել Suro ծրագիրը**, open the downloaded `SuroSetup.exe` and accept UAC.
+6. **Approve:** in the computer's panel on this page (or the device page, Overview → Enrollments) approve the request; check the hostname and CSR fingerprint first. The registration window appears on the laptop; the user enters their name.
 7. **Verify:** within a minute or two Network access shows *Authorized (router confirmed)*, with the granted IP and expiry. On the router, `/ip firewall address-list print where list=suro-admitted` shows the entry. Routed resources work from the laptop.
 8. **Enforcement check:** stop the `LocalNetworkPolicyAgent` service on the laptop. After timeout + grace (default 10 minutes) the state returns to *Restricted* and routed access stops. Start it again: access returns after the next heartbeat and worker tick.
 9. **Disable / roll back:** **Stop requiring the client** restores access at once (a permanent grant). Then **Remove gate and restore access** → Apply removes only this laptop's rules. If Suro is down, paste the commands under **Emergency rollback at the router** into the router terminal.
@@ -92,8 +98,30 @@ Prerequisites: the router that routes the laptop's subnet is registered with API
 
 Static IP: onboarding uses the restricted network's normal DHCP. The final address comes later from the policy (detected, see [policy editor](policy-editor.md)). The gate follows the address the router confirms, so an address change re-issues the grant rather than locking the computer out.
 
-## Network-wide later
+## All computers except exceptions
 
-`GROUPS` and `ALL` are refused (`admission.mode_requires_staged_rollout`). Per-MAC rules do not scale to hundreds of computers on an old router. The planned design is one subnet-level drop rule per managed subnet, with `suro-admitted` and an exemption list for developers and infrastructure. It also needs a preview of every affected host, a staged group rollout and a one-step rollback. The decision code (`evaluate`) and the grant worker already work per computer and need no change.
+Per-MAC rules do not scale to hundreds of computers on an old router, and they cannot restrict a computer Suro has never seen. Mode `ALL` therefore uses one pair of rules per routed IPv4 subnet (`subnet_*` in `services/admission_gate.py`, `AdmissionSubnet`, migration `0011`):
 
-Resource cost: no new service and no RADIUS. Per gated computer the worker makes one address-list read plus a delete and add per refresh, about every five minutes with the defaults.
+```
+/ip firewall filter  chain=forward src-address=<subnet> src-address-list=!suro-admitted dst-address=!<Suro IP> action=drop
+/ip firewall filter  chain=input   src-address=<subnet> src-address-list=!suro-admitted protocol=tcp action=drop
+/ip firewall address-list  list=suro-admitted address=<Suro IP / access point IPs inside the subnet>   (permanent)
+```
+
+| Step | State | Router writes |
+|---|---|---|
+| **Add network** (`POST /admission/subnets`, mode must be `ALL`, prefix /16–/30, no overlap) | `PREPARING` | None by this call. From now on the worker gives every known computer whose router-confirmed address is in the subnet a per-computer admission (`source=ALL`, `gate_state=SUBNET`) and keeps its grant: timed for a running client, permanent for an exception. Nothing is dropped. |
+| **Prepare enforcement** (`…/preview`) | `PREVIEW` | None. Lists every host the router sees in the subnet (ARP + leases) that has no `suro-admitted` entry, so it would lose routed access. Warns about IPv6 (not covered by IPv4 rules) and when the administrator's own address is inside. |
+| **Apply** (`…/apply` with `confirm_restricted` = the previewed count) | `INSTALLED` | Allow entries first, then the two drop rules before every existing rule; backup, re-read, readback |
+| **Remove** (`…/removal-preview` → apply) | `NOT_INSTALLED` | Drop rules first (access returns at once), then the subnet's allow entries and every grant of its `ALL` computers |
+
+- `firewall_shape()` accepts a subnet rule only on `ip/firewall/filter`, as `drop`, with an exact IPv4 network of /16 or narrower, with `src-address-list=!suro-admitted` and an owned `lantern:subnet:<id>:admission:` comment.
+- Leaving `ALL` while any subnet rule is installed is refused (`admission.remove_subnet_gates_first`), because unknown computers would stay blocked.
+- **New computers.** In `ALL` mode with onboarding enabled, a portal-installed client may ask to enroll without a per-computer window. This works only if one of its MACs is one the gate router itself sees inside a gated subnet. The request creates a pending device and enrollment, and an administrator still approves it. At most 100 pending portal requests per hour are accepted.
+- **Exceptions** are devices with `admission_exempt` (or class `INFRASTRUCTURE`, or `DEVELOPER` with the policy switch). Their router-confirmed address gets a permanent grant. A printer whose DHCP address changes is re-granted at the next worker tick. A device Suro has never been told about is restricted.
+- **Network access** for a subnet member shows `GATE_NOT_INSTALLED` instead of `RESTRICTED` until the subnet rule is installed.
+- Emergency rollback at the router: `/ip firewall filter remove [find comment~"^lantern:subnet:<id>:"]` (shown on the page).
+
+The Layer-2 limit above applies here as well: hosts in the same subnet still reach each other directly.
+
+Resource cost: no new service and no RADIUS. Per gated computer the worker makes one address-list read plus a delete and add per refresh, about every five minutes with the defaults. In `ALL` mode it also decodes each gate router's stored discovery once per tick to find subnet members.

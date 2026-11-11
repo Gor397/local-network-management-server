@@ -2,7 +2,8 @@
 param([Parameter(Mandatory)][string]$MsiPath, [Parameter(Mandatory)][string]$ProvisioningFile)
 $ErrorActionPreference = 'Stop'
 $os = Get-CimInstance Win32_OperatingSystem
-if ([int]$os.BuildNumber -lt 22000 -or -not [Environment]::Is64BitOperatingSystem) { throw 'A supported 64-bit Windows 11 installation is required' }
+# The MSI is 64-bit only; SuroSetup.exe also covers 32-bit Windows 10 (see docs/developers/building-the-client.md).
+if ([int]$os.BuildNumber -lt 14393 -or -not [Environment]::Is64BitOperatingSystem) { throw 'A 64-bit Windows 10 (1607 or later) or Windows 11 installation is required' }
 $provision = Get-Content -LiteralPath $ProvisioningFile -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $provision.token -or -not $provision.agent_publisher_thumbprint -or -not $provision.signing_public_key) { throw 'Incomplete provisioning file' }
 if (([uri]$provision.server).Scheme -ne 'https') { throw 'HTTPS required' }

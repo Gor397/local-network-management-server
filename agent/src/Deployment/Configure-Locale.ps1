@@ -11,18 +11,20 @@ foreach($layout in $layouts){if($layout -notmatch '^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{8
 $layoutArgument=if($layouts.Count){' -KeyboardLayouts '+($layouts -join ',')}else{''}
 $root="$env:ProgramData\Lantern"
 $userScript=Join-Path $root "locale-$($m.job_id).ps1"
-# Use the shipped, Authenticode-signed script; parameters are passed as validated arguments.
+# Use the shipped script; parameters are passed as validated arguments. A signed build keeps AllSigned; an unsigned
+# build (integrity checked by the agent before this script ran) uses Bypass for its own protected copy.
 $script=Join-Path $PSScriptRoot 'Apply-UserLocale.ps1'
-$action=New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument "-NoProfile -ExecutionPolicy AllSigned -File `"$script`" -Language $($m.language)$layoutArgument"
+$policy=if((Get-AuthenticodeSignature -LiteralPath $PSCommandPath).Status -eq 'Valid'){'AllSigned'}else{'Bypass'}
 $trigger=New-ScheduledTaskTrigger -AtLogOn -User $user.Name
 $principal=New-ScheduledTaskPrincipal -UserId $user.SID.Value -LogonType Interactive -RunLevel Limited
 $taskName="LanternLocale-$($m.job_id)"
-# Standard users need read/execute on this single signed script, not the protected agent directory.
+# Standard users need read/execute on this single script, not the protected agent directory; only SYSTEM and
+# Administrators can change it.
 $publicScript="$env:ProgramData\LanternLocale-$($m.job_id).ps1"
 Copy-Item -LiteralPath $script -Destination $publicScript
 & icacls.exe $publicScript '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' "*$($user.SID.Value):RX" | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Failed to grant target user read access to locale script'}
-$action=New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument "-NoProfile -ExecutionPolicy AllSigned -File `"$publicScript`" -Language $($m.language)$layoutArgument"
+$action=New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument "-NoProfile -ExecutionPolicy $policy -File `"$publicScript`" -Language $($m.language)$layoutArgument"
 # A later approved locale supersedes older Suro locale tasks for this same user.
 Get-ScheduledTask -TaskName 'LanternLocale-*' -ErrorAction SilentlyContinue | Where-Object {$_.Principal.UserId -in @($user.Name,$user.SID.Value)} | ForEach-Object {Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false}
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null

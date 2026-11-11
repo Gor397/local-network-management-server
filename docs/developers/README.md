@@ -14,6 +14,8 @@ Diagrams use Mermaid blocks, which render in compatible Markdown viewers. Each d
 | Which file should I change? | [Code map](code-map.md) |
 | How are requests authenticated and signed? | [Protocols](protocols.md) |
 | How do policies, checks and exceptions work? | [Policy and compliance reference](../policy-reference.md) |
+| How do I build `SuroSetup.exe` and get it onto computers? | [Building the client](building-the-client.md) |
+| How do I require the client on one computer, a list, or everything except exceptions? | [Client admission](client-admission.md) |
 | How do installs and SSH differ from policies? | [Privileged operations](privileged-operations.md) |
 | How do jobs survive failure? | [Data, jobs and recovery](data-and-jobs.md) |
 | How do I implement a feature and test it? | [Contribution recipes](contributing.md) |

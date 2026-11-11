@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Lantern.PolicyEngine;
+using Lantern.Service;
 
 using var key = RSA.Create(3072);
 string publicKey = key.ExportSubjectPublicKeyInfoPem();
@@ -27,4 +28,11 @@ Reject(()=>SignedDocument.ValidatePolicy(unsafePolicy.RootElement,"device-a"),"U
 Assert(SignedDocument.UtcInstant("2026-10-30T12:00:00")==new DateTime(2026,10,30,12,0,0,DateTimeKind.Utc),"Legacy UTC timestamps are independent of local timezone");
 Assert(SignedDocument.UtcInstant("2026-10-30T16:00:00+04:00")==SignedDocument.UtcInstant("2026-10-30T12:00:00Z"),"Explicit Armenian UTC offset is honored");
 Assert(SignedDocument.UtcInstant("2026-10-30T12:00:00").Kind==DateTimeKind.Utc,"Decoded timestamps retain UTC kind");
+// Script integrity without code signing: the installed copy must equal the copy embedded at build time.
+byte[] probe=File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory,"Probe.ps1"));
+Assert(PowerShell.ExecutionPolicy("Probe/Probe.ps1",probe)=="Bypass","Unchanged bundled script runs without a signature");
+Assert(PowerShell.ExecutionPolicy("Probe\\Probe.ps1",probe)=="Bypass","Script lookup is separator independent");
+Reject(()=>PowerShell.ExecutionPolicy("Probe/Probe.ps1",[..probe,..Encoding.UTF8.GetBytes("Remove-Item C:\\ -Recurse\n")]),"Modified unsigned script refused");
+Assert(PowerShell.ExecutionPolicy("Probe/Probe.ps1",[..probe,..Encoding.UTF8.GetBytes("\n# SIG # Begin signature block\n")])=="AllSigned","Signed script is left to PowerShell AllSigned");
+Reject(()=>PowerShell.ExecutionPolicy("Other/Unknown.ps1",probe),"Script not shipped with the agent refused");
 Console.WriteLine($"{passed} contract tests passed. Windows behavior still requires VM verification.");

@@ -18,6 +18,7 @@ TestResults/
 *.tsbuildinfo
 agent/installer/publish/
 agent/installer/PublishedFiles.wxs
+agent/setup/payload/
 artifacts/
 .env.before-update
 .ruff_cache/

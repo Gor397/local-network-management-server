@@ -9,13 +9,13 @@ from datetime import timedelta
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from app.auth.dependencies import audit, db_session, require
 from app.db import utcnow
-from app.models import (AuditLog, Device, DeviceCredential, Enrollment, NetworkAdmission, NetworkInterface, NetworkPlan,
-                        Router, UserIdentity)
+from app.models import (AdmissionSubnet, AuditLog, Device, DeviceCredential, Enrollment, NetworkAdmission, NetworkInterface,
+                        NetworkPlan, Router, UserIdentity)
 from app.services import admission_gate as gate
-from app.services.admission_sync import credential_active, get_policy
+from app.services.admission_sync import credential_active, enforced, get_policy
 from app.services.devices import device_or_404, effective_state, normalize_mac
 from app.security.crypto import digest
 
@@ -26,6 +26,16 @@ def _policy(p):
     return {k: getattr(p, k) for k in ("mode", "group_ids", "require_enrollment", "require_running_agent", "require_compliance",
                                        "exempt_developers", "heartbeat_timeout_seconds", "grace_seconds", "auto_revoke",
                                        "onboarding_enabled", "outage_policy", "revision", "updated_at")}
+
+
+@router.get("/admission/site-config")
+def site_config(request: Request, admin=Depends(require("read"))):
+    """site.json for building a code-signed setup (scripts/build-client.py --site). Public values only."""
+    from app.api.onboarding import site_settings
+    try:
+        return site_settings(request.app.state.settings, None)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
 
 
 @router.get("/admission/policy")
@@ -53,9 +63,13 @@ def update_policy(body: PolicyUpdate, admin=Depends(require("approve", mfa=True)
     policy = get_policy(db)
     if body.revision != policy.revision:
         raise HTTPException(409, "admission.concurrent_change")
-    if body.mode in ("GROUPS", "ALL"):
-        # Network-wide gating needs subnet-level rules and a staged rollout that are not implemented yet.
+    if body.mode == "GROUPS":
+        # Requiring by group is done by selecting the group's computers (POST /admission/selected).
         raise HTTPException(409, "admission.mode_requires_staged_rollout")
+    if policy.mode == "ALL" and body.mode != "ALL" and db.scalar(
+            select(AdmissionSubnet.id).where(AdmissionSubnet.state != "NOT_INSTALLED")):
+        # Subnet drop rules also restrict computers Suro does not know; leaving ALL would strand them.
+        raise HTTPException(409, "admission.remove_subnet_gates_first")
     if not body.require_enrollment and not body.require_running_agent and not body.require_compliance:
         raise HTTPException(422, "admission.no_requirement")
     for key, value in body.model_dump(exclude={"revision", "reason"}).items():
@@ -91,21 +105,57 @@ def add_pilot(body: PilotCreate, request: Request, admin=Depends(require("approv
         db.add(device)
         db.flush()
         audit(db, admin.id, "device.created", device.id, device_class="STANDARD", source="admission_pilot")
-    if device.device_class in ("DEVELOPER", "INFRASTRUCTURE") or device.admission_exempt or not device.enabled:
-        raise HTTPException(409, "admission.device_exempt")
     if device.primary_mac != mac:
         raise HTTPException(409, "admission.use_primary_mac")
+    code = _require_device(db, admin, device, r, body.reason)
+    if code:
+        raise HTTPException(409, code)
+    return detail(device.id, request, admin, db)
+
+
+def _require_device(db, admin, device, r, reason):
+    """Put one computer under a per-MAC (selected computers) gate on router r. Returns an error code or None."""
+    if device.device_class in ("DEVELOPER", "INFRASTRUCTURE") or device.admission_exempt or not device.enabled:
+        return "admission.device_exempt"
     admission = db.scalar(select(NetworkAdmission).where(NetworkAdmission.device_id == device.id))
+    if admission and admission.source == "ALL" and admission.gate_state == "SUBNET":
+        return "admission.covered_by_subnet"
     if not admission:
         admission = NetworkAdmission(device_id=device.id, source="PILOT", revision=0)
         db.add(admission)
     if admission.gate_state == "INSTALLED" and admission.router_id != r.id:
-        raise HTTPException(409, "admission.remove_gate_first")
-    admission.router_id, admission.enabled = r.id, True
-    admission.revision += 1
+        return "admission.remove_gate_first"
+    admission.source, admission.router_id, admission.enabled = "PILOT", r.id, True
+    admission.revision = (admission.revision or 0) + 1
     db.flush()
-    audit(db, admin.id, "admission.pilot_added", device.id, mac=mac, router_id=r.id, reason=body.reason)
-    return detail(device.id, request, admin, db)
+    audit(db, admin.id, "admission.pilot_added", device.id, mac=device.primary_mac, router_id=r.id, reason=reason)
+    return None
+
+
+def _router_or_404(db, router_id):
+    r = db.get(Router, router_id)
+    if not r or r.archived:
+        raise HTTPException(404, "router.not_found")
+    return r
+
+
+class Selected(BaseModel):
+    device_ids: list[str] = Field(min_length=1, max_length=200)
+    router_id: str
+    reason: str = Field(min_length=5, max_length=2000)
+
+
+@router.post("/admission/selected")
+def add_selected(body: Selected, admin=Depends(require("approve", mfa=True)), db=Depends(db_session)):
+    """Require the Suro Client on one or several chosen computers. Nothing reaches the router until a gate plan
+    (POST /admission/routers/{id}/gate-preview) is reviewed and applied."""
+    r = _router_or_404(db, body.router_id)
+    added, skipped = [], []
+    for device_id in dict.fromkeys(body.device_ids):
+        device = db.get(Device, device_id)
+        code = "device.not_found" if not device else _require_device(db, admin, device, r, body.reason)
+        (skipped.append({"device_id": device_id, "code": code}) if code else added.append(device_id))
+    return {"added": added, "skipped": skipped}
 
 
 async def _snapshot(request, r):
@@ -217,6 +267,285 @@ async def apply(device_id: str, body: Apply, request: Request, admin=Depends(req
     admission.revision += 1
     db.commit()
     return {"state": result["state"], "kind": kind, "admission": _row(db, request, device, admission)}
+
+
+# ---- several selected computers on one router: one reviewed plan ------------------------------------
+
+BATCH_LIMIT = 50  # per-MAC rules on an old router; larger groups belong in a subnet gate
+
+
+class BatchPreview(BaseModel):
+    device_ids: list[str] | None = Field(default=None, max_length=BATCH_LIMIT)
+    reason: str = Field(min_length=5, max_length=2000)
+
+
+@router.post("/admission/routers/{router_id}/gate-preview")
+async def batch_gate_preview(router_id: str, body: BatchPreview, request: Request, admin=Depends(require("approve", mfa=True)),
+                             db=Depends(db_session)):
+    """Gate rules for every selected computer on this router that has no installed gate yet, in one plan."""
+    r = _router_or_404(db, router_id)
+    query = select(NetworkAdmission).where(NetworkAdmission.router_id == r.id, NetworkAdmission.source == "PILOT",
+                                           NetworkAdmission.enabled.is_(True), NetworkAdmission.gate_state != "INSTALLED")
+    if body.device_ids:
+        query = query.where(NetworkAdmission.device_id.in_(body.device_ids))
+    admissions = db.scalars(query).all()
+    if len(admissions) > BATCH_LIMIT:
+        raise HTTPException(409, "admission.batch_too_large")
+    if not admissions:
+        raise HTTPException(409, "admission.nothing_to_prepare")
+    snapshot = await _snapshot(request, r)
+    server = gate.server_address(request.app.state.settings)
+    operations, included, skipped = [], [], []
+    for admission in admissions:
+        device = db.get(Device, admission.device_id)
+        report = gate.feasibility(r, snapshot, device, server)
+        if report["blockers"]:
+            skipped.append({"device_id": device.id, "hostname": device.hostname, "blockers": report["blockers"]})
+            continue
+        device_operations = gate.gate_plan(device, server, snapshot)
+        if not device_operations:
+            admission.gate_state = "INSTALLED"
+            continue
+        operations += device_operations
+        included.append({"device_id": device.id, "hostname": device.hostname, "mac": device.primary_mac,
+                         "warnings": report["warnings"]})
+    result = {"included": included, "skipped": skipped, "plan": None}
+    if not operations:
+        return result
+    from app.mikrotik.connector import snapshot_hash
+    plan = NetworkPlan(device_id=None, router_id=r.id, generation=r.generation, snapshot_hash=snapshot_hash(snapshot),
+                       operations=operations, reason=body.reason, author_id=admin.id,
+                       result={"admission": None, "kind": "admission_batch_gate", "device_ids": [i["device_id"] for i in included],
+                               "owned_prefixes": [f"lantern:{i['device_id']}:admission:" for i in included]})
+    db.add(plan)
+    db.flush()
+    for admission in admissions:
+        if admission.device_id in plan.result["device_ids"]:
+            admission.gate_state, admission.gate_plan_id = "PREVIEW", plan.id
+    audit(db, admin.id, "admission.batch_gate_previewed", r.id, plan_id=plan.id, devices=len(included), skipped=len(skipped))
+    return {**result, "plan": {"id": plan.id, "operations": _readable(operations), "expires_in_seconds": 600}}
+
+
+@router.post("/admission/routers/{router_id}/apply")
+async def batch_apply(router_id: str, body: Apply, request: Request, admin=Depends(require("approve", mfa=True)), db=Depends(db_session)):
+    from app.services.network import execute_plan
+    plan = db.get(NetworkPlan, body.plan_id)
+    if not plan or plan.router_id != router_id or (plan.result or {}).get("kind") != "admission_batch_gate":
+        raise HTTPException(404, "network.plan_not_found")
+    device_ids = list(plan.result["device_ids"])
+    audit(db, admin.id, "admission.apply_requested", router_id, plan_id=plan.id, kind="admission_batch_gate", reason=body.reason)
+    result = await execute_plan(request.app, db, plan, admin.id)
+    for admission in db.scalars(select(NetworkAdmission).where(NetworkAdmission.device_id.in_(device_ids))):
+        if result["state"] == "VERIFIED":
+            admission.gate_state, admission.error = "INSTALLED", None
+        elif result["state"] == "ERROR":
+            admission.gate_state = "ERROR"
+            admission.error = (result.get("result") or {}).get("error", "admission.router_error")
+        admission.revision += 1
+    db.commit()
+    return {"state": result["state"], "devices": len(device_ids)}
+
+
+# ---- all computers of a subnet except exceptions ----------------------------------------------------
+
+def _subnet_or_404(db, subnet_id):
+    subnet = db.get(AdmissionSubnet, subnet_id)
+    if not subnet:
+        raise HTTPException(404, "admission.subnet_not_found")
+    return subnet
+
+
+def _subnet_row(db, subnet):
+    r = db.get(Router, subnet.router_id)
+    members = db.scalars(select(NetworkAdmission).where(NetworkAdmission.source == "ALL", NetworkAdmission.router_id == subnet.router_id,
+                                                        NetworkAdmission.gate_state == "SUBNET")).all()
+    network = gate.subnet_network(subnet)
+    inside = [a for a in members if gate._inside(a.granted_ip or a.reported_ip or "", network)]
+    return {"id": subnet.id, "router_id": subnet.router_id, "router_name": r.name if r else None, "cidr": subnet.cidr,
+            "state": subnet.state, "error": subnet.error, "created_at": subnet.created_at,
+            "members": len(inside), "granted": sum(a.applied == "AUTHORIZED" for a in inside),
+            "rollback_commands": gate.subnet_rollback_commands(subnet)}
+
+
+@router.get("/admission/subnets")
+def list_subnets(admin=Depends(require("read")), db=Depends(db_session)):
+    return [_subnet_row(db, s) for s in db.scalars(select(AdmissionSubnet).order_by(AdmissionSubnet.created_at))]
+
+
+class SubnetCreate(BaseModel):
+    router_id: str
+    cidr: str = Field(min_length=9, max_length=43)
+    reason: str = Field(min_length=5, max_length=2000)
+
+
+@router.post("/admission/subnets", status_code=201)
+def add_subnet(body: SubnetCreate, admin=Depends(require("approve", mfa=True)), db=Depends(db_session)):
+    """Start "all computers except exceptions" on one subnet. This only prepares grants; nothing is dropped
+    until the subnet's plan is previewed, its restricted-host count confirmed and applied."""
+    from ipaddress import ip_network
+    if get_policy(db).mode != "ALL":
+        raise HTTPException(409, "admission.mode_not_all")
+    r = _router_or_404(db, body.router_id)
+    try:
+        network = ip_network(body.cidr.strip(), strict=False)
+    except ValueError:
+        raise HTTPException(422, "admission.invalid_subnet") from None
+    if network.version != 4 or network.prefixlen < 16 or network.prefixlen > 30:
+        raise HTTPException(422, "admission.invalid_subnet")
+    for other in db.scalars(select(AdmissionSubnet).where(AdmissionSubnet.state != "NOT_INSTALLED")):
+        if gate.subnet_network(other).overlaps(network):
+            raise HTTPException(409, "admission.subnet_overlaps")
+    subnet = AdmissionSubnet(router_id=r.id, cidr=str(network), created_by=admin.id, revision=0)
+    db.add(subnet)
+    db.flush()
+    audit(db, admin.id, "admission.subnet_added", subnet.id, router_id=r.id, cidr=subnet.cidr, reason=body.reason)
+    return _subnet_row(db, subnet)
+
+
+def _subnet_plan(db, subnet, r, snapshot, operations, admin, reason, kind, **extra):
+    from app.mikrotik.connector import snapshot_hash
+    plan = NetworkPlan(device_id=None, router_id=r.id, generation=r.generation, snapshot_hash=snapshot_hash(snapshot),
+                       operations=operations, reason=reason, author_id=admin.id,
+                       result={"admission": None, "kind": kind, "subnet_id": subnet.id, **extra})
+    db.add(plan)
+    db.flush()
+    subnet.plan_id = plan.id
+    return plan
+
+
+@router.post("/admission/subnets/{subnet_id}/preview")
+async def subnet_preview(subnet_id: str, body: Reason, request: Request, admin=Depends(require("approve", mfa=True)), db=Depends(db_session)):
+    subnet = _subnet_or_404(db, subnet_id)
+    if subnet.state in ("NOT_INSTALLED", "REMOVING"):
+        raise HTTPException(409, "admission.subnet_not_prepared")
+    r = _router_or_404(db, subnet.router_id)
+    snapshot = await _snapshot(request, r)
+    server = gate.server_address(request.app.state.settings)
+    from app.api.onboarding import client_ip
+    report = gate.subnet_feasibility(r, subnet, snapshot, server, admin_ip=client_ip(request))
+    result = {"feasibility": report, "rollback_commands": gate.subnet_rollback_commands(subnet), "plan": None}
+    if report["blockers"]:
+        return result
+    operations = gate.subnet_plan(subnet, server, snapshot)
+    if not operations:
+        subnet.state = "INSTALLED"
+        return {**result, "already_installed": True}
+    restricted = report["facts"]["hosts_restricted"]
+    plan = _subnet_plan(db, subnet, r, snapshot, operations, admin, body.reason, "admission_subnet_gate",
+                        restricted=restricted, owned_prefixes=[gate.subnet_prefix(subnet)])
+    subnet.state = "PREVIEW"
+    audit(db, admin.id, "admission.subnet_previewed", subnet.id, plan_id=plan.id, restricted=restricted, warnings=report["warnings"])
+    return {**result, "plan": {"id": plan.id, "operations": _readable(operations), "expires_in_seconds": 600, "confirm_restricted": restricted}}
+
+
+@router.post("/admission/subnets/{subnet_id}/removal-preview")
+async def subnet_removal_preview(subnet_id: str, body: Reason, request: Request, admin=Depends(require("approve", mfa=True)),
+                                 db=Depends(db_session)):
+    subnet = _subnet_or_404(db, subnet_id)
+    r = _router_or_404(db, subnet.router_id)
+    snapshot = await _snapshot(request, r)
+    members = [db.get(Device, a.device_id) for a in db.scalars(select(NetworkAdmission).where(
+        NetworkAdmission.source == "ALL", NetworkAdmission.router_id == r.id, NetworkAdmission.gate_state == "SUBNET"))]
+    operations = gate.subnet_removal_plan(subnet, snapshot, members)
+    if not operations:
+        _subnet_removed(db, subnet)
+        return {"plan": None, "already_removed": True, "rollback_commands": gate.subnet_rollback_commands(subnet)}
+    plan = _subnet_plan(db, subnet, r, snapshot, operations, admin, body.reason, "admission_subnet_removal",
+                        owned_prefixes=[gate.subnet_prefix(subnet)] + [f"lantern:{d.id}:admission:" for d in members])
+    # Freeze grant refreshes so the router still matches this plan when it is applied.
+    subnet.state = "REMOVING"
+    for admission in db.scalars(select(NetworkAdmission).where(NetworkAdmission.source == "ALL", NetworkAdmission.router_id == r.id,
+                                                               NetworkAdmission.gate_state == "SUBNET")):
+        admission.gate_state = "REMOVING"
+    audit(db, admin.id, "admission.subnet_removal_previewed", subnet.id, plan_id=plan.id)
+    return {"plan": {"id": plan.id, "operations": _readable(operations), "expires_in_seconds": 600},
+            "rollback_commands": gate.subnet_rollback_commands(subnet)}
+
+
+def _subnet_removed(db, subnet):
+    subnet.state, subnet.error = "NOT_INSTALLED", None
+    for admission in db.scalars(select(NetworkAdmission).where(NetworkAdmission.source == "ALL", NetworkAdmission.router_id == subnet.router_id,
+                                                               NetworkAdmission.gate_state.in_(("SUBNET", "REMOVING")))):
+        admission.gate_state, admission.applied, admission.granted_ip, admission.grant_expires_at = "NOT_INSTALLED", "NONE", None, None
+        admission.enabled = False
+        admission.revision += 1
+
+
+class SubnetApply(BaseModel):
+    plan_id: str
+    reason: str = Field(min_length=5, max_length=2000)
+    # The administrator types how many hosts the preview said will lose routed access.
+    confirm_restricted: int | None = Field(default=None, ge=0)
+
+
+@router.post("/admission/subnets/{subnet_id}/apply")
+async def subnet_apply(subnet_id: str, body: SubnetApply, request: Request, admin=Depends(require("approve", mfa=True)), db=Depends(db_session)):
+    from app.services.network import execute_plan
+    subnet = _subnet_or_404(db, subnet_id)
+    plan = db.get(NetworkPlan, body.plan_id)
+    kind = (plan.result or {}).get("kind") if plan else None
+    if not plan or (plan.result or {}).get("subnet_id") != subnet.id or kind not in ("admission_subnet_gate", "admission_subnet_removal"):
+        raise HTTPException(404, "network.plan_not_found")
+    if kind == "admission_subnet_gate" and body.confirm_restricted != plan.result.get("restricted"):
+        raise HTTPException(409, "admission.confirm_restricted_mismatch")
+    audit(db, admin.id, "admission.apply_requested", subnet.id, plan_id=plan.id, kind=kind, reason=body.reason,
+          confirmed_restricted=body.confirm_restricted)
+    result = await execute_plan(request.app, db, plan, admin.id)
+    subnet = _subnet_or_404(db, subnet_id)
+    if result["state"] == "VERIFIED":
+        if kind == "admission_subnet_gate":
+            subnet.state, subnet.error = "INSTALLED", None
+        else:
+            _subnet_removed(db, subnet)
+    elif result["state"] == "ERROR":
+        error = (result.get("result") or {}).get("error", "admission.router_error")
+        # A failed removal keeps the subnet managed, so grants are not silently lost.
+        subnet.state, subnet.error = ("INSTALLED" if kind == "admission_subnet_removal" else "ERROR"), error
+        if kind == "admission_subnet_removal":
+            for admission in db.scalars(select(NetworkAdmission).where(NetworkAdmission.source == "ALL",
+                                                                       NetworkAdmission.router_id == subnet.router_id,
+                                                                       NetworkAdmission.gate_state == "REMOVING")):
+                admission.gate_state = "SUBNET"
+    subnet.revision += 1
+    db.commit()
+    return {"state": result["state"], "kind": kind, "subnet": _subnet_row(db, subnet)}
+
+
+@router.delete("/admission/subnets/{subnet_id}")
+def delete_subnet(subnet_id: str, body: Reason, admin=Depends(require("approve", mfa=True)), db=Depends(db_session)):
+    subnet = _subnet_or_404(db, subnet_id)
+    if subnet.state != "NOT_INSTALLED":
+        raise HTTPException(409, "admission.subnet_remove_first")
+    audit(db, admin.id, "admission.subnet_deleted", subnet.id, cidr=subnet.cidr, reason=body.reason)
+    db.delete(subnet)
+    return {"deleted": True}
+
+
+class ExceptionCreate(BaseModel):
+    mac: str
+    name: str = Field(min_length=1, max_length=128)
+    device_class: Literal["INFRASTRUCTURE", "OTHER"] = "OTHER"
+    reason: str = Field(min_length=5, max_length=2000)
+
+
+@router.post("/admission/exceptions", status_code=201)
+def add_exception(body: ExceptionCreate, admin=Depends(require("approve", mfa=True)), db=Depends(db_session)):
+    """A device that keeps network access without the Suro Client (printer, camera, phone, server, a developer's
+    machine). Only administrators set this; its router-confirmed address gets a permanent grant."""
+    try:
+        mac = normalize_mac(body.mac)
+    except ValueError:
+        raise HTTPException(422, "device.invalid_mac") from None
+    device = db.scalar(select(Device).where(Device.primary_mac == mac))
+    if not device:
+        device = Device(hostname=body.name, primary_mac=mac, state="UNVERIFIED", device_class=body.device_class)
+        db.add(device)
+        db.flush()
+        audit(db, admin.id, "device.created", device.id, device_class=body.device_class, source="admission_exception")
+    device.admission_exempt, device.exemption_reason = True, body.reason
+    device.revision = (device.revision or 0) + 1
+    audit(db, admin.id, "admission.exemption_changed", device.id, exempt=True, device_class=device.device_class, reason=body.reason)
+    return {"device_id": device.id, "hostname": device.hostname, "mac": device.primary_mac, "exempt": True}
 
 
 class Toggle(BaseModel):
@@ -341,7 +670,8 @@ def _row(db, request, device, admission, policy=None):
         "agent_version": device.agent_version, "last_heartbeat": device.last_heartbeat, "registered_at": device.created_at,
         "enrollment_id": credential.fingerprint[:16] if credential else None, "user": _identity(db, device),
         "required": bool(admission and admission.enabled), "desired": desired, "reason": reason,
-        "network": gate.network_state(admission, desired),
+        "network": gate.network_state(admission, desired, enforced=enforced(db, admission)),
+        "source": admission.source if admission else None,
         "gate_state": admission.gate_state if admission else None, "router_id": admission.router_id if admission else None,
         "applied": admission.applied if admission else None, "applied_at": admission.applied_at if admission else None,
         "granted_ip": admission.granted_ip if admission else None, "grant_expires_at": admission.grant_expires_at if admission else None,
@@ -364,7 +694,13 @@ def overview(request: Request, q: str = "", only_required: bool = False, admin=D
         query = query.where(Device.id.in_(admissions))
     rows = [_row(db, request, d, admissions.get(d.id), policy) for d in db.scalars(query.order_by(Device.hostname).limit(500))]
     counts = {key: sum(r["client"] == key for r in rows) for key in ("ENROLLED", "ENROLLMENT_PENDING", "NOT_ENROLLED")}
-    return {"policy": _policy(policy), "counts": counts, "items": rows}
+    subnets = [_subnet_row(db, s) for s in db.scalars(select(AdmissionSubnet).order_by(AdmissionSubnet.created_at))]
+    exceptions = [{"device_id": d.id, "hostname": d.hostname, "mac": d.primary_mac, "device_class": d.device_class,
+                   "reason": d.exemption_reason}
+                  for d in db.scalars(select(Device).where(Device.enabled.is_(True), Device.admission_exempt.is_(True) |
+                                                           Device.device_class.in_(("INFRASTRUCTURE", "DEVELOPER")))
+                                      .order_by(Device.hostname).limit(500))]
+    return {"policy": _policy(policy), "counts": counts, "items": rows, "subnets": subnets, "exceptions": exceptions}
 
 
 @router.get("/admission/devices/{device_id}")
@@ -402,10 +738,13 @@ def onboarding_request(body: OnboardingRequest, request: Request, db=Depends(db_
         except ValueError:
             continue
     now = utcnow()
+    policy = get_policy(db)
     candidates = db.scalars(select(Device).where(Device.primary_mac.in_(macs), Device.enabled.is_(True),
                                                  Device.device_class.not_in(["DEVELOPER", "INFRASTRUCTURE"]))).all()
     device = next((d for d in candidates if (a := db.scalar(select(NetworkAdmission).where(NetworkAdmission.device_id == d.id)))
-                   and a.onboarding_until and a.onboarding_until > now and get_policy(db).onboarding_enabled), None)
+                   and a.onboarding_until and a.onboarding_until > now and policy.onboarding_enabled), None)
+    if not device and policy.mode == "ALL" and policy.onboarding_enabled:
+        device = _subnet_newcomer(request, db, macs, candidates, body.hostname, now)
     if not device or credential_active(db, device):
         audit(db, "onboarding", "enrollment.unsolicited_request", "onboarding", macs=sorted(macs)[:4], hostname=body.hostname)
         return {"status": "PENDING_APPROVAL", "token": None}
@@ -422,3 +761,35 @@ def onboarding_request(body: OnboardingRequest, request: Request, db=Depends(db_
     audit(db, "onboarding", "enrollment.requested", device.id, source="onboarding_portal", hostname=body.hostname,
           csr_sha256=digest(body.csr))
     return {"status": "PENDING_APPROVAL", "token": token, "primary_mac": device.primary_mac}
+
+
+NEWCOMER_LIMIT = 100  # pending portal requests per hour in "all computers" mode; each still needs approval
+
+
+def _subnet_newcomer(request, db, macs, candidates, hostname, now):
+    """"All computers except exceptions": a computer behind a gated subnet may ask to enroll without a per-computer
+    window. The MAC must be one the gate router itself sees inside a gated subnet; the request only waits for an
+    administrator's approval, exactly like a windowed one."""
+    from app.services.admission_sync import router_addresses
+    subnets = db.scalars(select(AdmissionSubnet).where(AdmissionSubnet.state.in_(("PREPARING", "PREVIEW", "INSTALLED")))).all()
+    seen = None
+    for subnet in subnets:
+        addresses = router_addresses(request.app, db.get(Router, subnet.router_id))
+        seen = next((m for m in sorted(macs) if gate._inside(addresses.get(m, ""), gate.subnet_network(subnet))), None)
+        if seen:
+            break
+    if not seen:
+        return None
+    existing = next((d for d in candidates if d.primary_mac == seen), None)
+    if existing:
+        admission = db.scalar(select(NetworkAdmission).where(NetworkAdmission.device_id == existing.id))
+        return existing if not admission or admission.source == "ALL" else None
+    recent = db.scalar(select(func.count(Enrollment.id)).where(Enrollment.created_at > now - timedelta(hours=1),
+                                                               Enrollment.approved.is_(False), Enrollment.csr.is_not(None)))
+    if recent >= NEWCOMER_LIMIT or db.scalar(select(Device.id).where(Device.primary_mac == seen)):
+        return None
+    device = Device(hostname=hostname[:128], primary_mac=seen, state="PENDING_ENROLLMENT")
+    db.add(device)
+    db.flush()
+    audit(db, "onboarding", "device.created", device.id, device_class="STANDARD", source="admission_subnet_portal")
+    return device

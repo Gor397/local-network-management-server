@@ -2097,7 +2097,7 @@ function UploadPackage() {
           <input
             name="publisher"
             pattern="[A-Fa-f0-9]{40,64}"
-            required={kind !== "routeros"}
+            required={kind !== "routeros" && kind !== "agent_update"}
           />
         </label>
         <label>
@@ -2114,7 +2114,9 @@ function UploadPackage() {
                   "smips",
                   "x86",
                 ]
-              : ["x64", "arm64", "x86"]
+              : kind === "agent_update"
+                ? ["any", "x64", "x86"]
+                : ["x64", "arm64", "x86"]
             ).map((a) => (
               <option key={a}>{a}</option>
             ))}
@@ -2133,12 +2135,12 @@ function UploadPackage() {
         )}
         <label>
           {t("minimumBuild")}
-          <input type="number" name="minimum_build" defaultValue={22000} />
+          <input type="number" name="minimum_build" defaultValue={14393} />
         </label>
         {["msi", "agent_update", "exe"].includes(kind) && (
           <label>
             {t("productCode")}
-            <input name="product_code" required={kind !== "exe"} />
+            <input name="product_code" required={kind === "msi"} />
           </label>
         )}
         {kind === "feature" && (
